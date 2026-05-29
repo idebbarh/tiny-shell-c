@@ -1,5 +1,14 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <dirent.h>
+#include <unistd.h>
+
+#ifdef _WIN32
+    #define PATH_SEP ";"
+#else
+    #define PATH_SEP ":"
+#endif
 
 int main(int argc, char *argv[]) {
   // Flush after every printf
@@ -15,39 +24,95 @@ int main(int argc, char *argv[]) {
 
         printf("$ ");
 
+        //get user input
         fgets(input, 100, stdin);
         input[strlen(input) - 1] = '\0';
 
+        //check if not empty
         if(strlen(input) > 0){
-
+            //split it by space and store the parts in parts
             token = strtok(input, " ");
             while(token != NULL && pc < sizeof(parts) / sizeof(parts[0])){
                 parts[pc++] = token;
                 token = strtok(NULL, " ");
             }
 
+            //if the input is exit exit the loop
             if(strcmp(input, "exit") == 0){
                 break;
+
+            //check if the first part is echo cmd
             }else if(strcmp(parts[0], "echo") == 0){
                 size_t i = 1;
 
+                //print all the sentences after the echo cmd
                 while(i < pc){
                     printf("%s ", parts[i++]);
                 }
 
-                if(i > 1){
-                    printf("\n");
-                }
+                printf("\n");
+
+            // check if it's a type cmd
             }else if(strcmp(parts[0], "type") == 0){
                 size_t i = 1;
 
+                // loop over the cmds after it.
                 while(i < pc){
                     char* cmd = parts[i++];
 
+                    // check if the cmd is builtin.
                     if(strcmp(cmd, "echo") == 0 || strcmp(cmd, "exit") == 0 || strcmp(cmd, "type") == 0){
                         printf("%s is a shell builtin\n", cmd);
+
+                    //chearch for the cmd in the PATH.
                     }else {
-                        printf("%s: not found\n", cmd);
+                        //get the PATH
+                        char *path_value = strdup(getenv("PATH"));
+                        char *subpath;
+
+                        int is_found = 0;
+
+                        //split it by : if it's linux or ; if it's win.
+                        subpath = strtok(path_value, PATH_SEP);
+
+                        //loop over the subpaths
+                        while(subpath != NULL){
+                            //open the dir
+                            DIR *dir = opendir(subpath);
+
+                           if (dir != NULL) {
+                                struct dirent *entry;
+
+                                //read the dir and get all it's files and dirs.
+                                while ((entry = readdir(dir)) != NULL) {
+                                    //check if the current file is the cmd
+                                    if(strcmp(entry->d_name, cmd) == 0){
+                                        //get teh full path of the file.
+                                        char full_path[1024];
+                                        snprintf(full_path, sizeof(full_path), "%s/%s", subpath, entry->d_name);
+
+                                        //check if it's excutable.
+                                        if(access(full_path, X_OK) == 0){
+                                            printf("%s is %s\n", cmd, full_path);
+                                            is_found = 1;
+                                            break;
+                                        }
+                                    }
+                                }
+
+                                closedir(dir);
+                            }
+
+                            if(is_found) break;
+
+                            subpath = strtok(NULL, PATH_SEP);
+                        }
+
+                        free(path_value);
+
+                        if(!is_found){
+                            printf("%s: not found\n", cmd);
+                        }
                     }
                 }
             }else{
