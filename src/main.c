@@ -29,7 +29,10 @@ int main(int argc, char *argv[]) {
     // check if not empty
     if (strlen(input) > 0) {
       // split it by space and store the parts in parts
-      token = strtok(input, " ");
+      char input_cpy[100];
+      strcpy(input_cpy, input);
+
+      token = strtok(input_cpy, " ");
       while (token != NULL && pc < sizeof(parts) / sizeof(parts[0])) {
         parts[pc++] = token;
         token = strtok(NULL, " ");
@@ -117,7 +120,13 @@ int main(int argc, char *argv[]) {
           }
         }
       } else {
-        printf("%s: command not found\n", input);
+        if (access(parts[0], F_OK) == 0) {
+          if (access(parts[0], X_OK) == 0) {
+            system(input);
+          }
+        } else {
+          printf("%s: command not found\n", input);
+        }
       }
     }
   }
