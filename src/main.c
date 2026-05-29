@@ -10,6 +10,53 @@
 #define PATH_SEP ":"
 #endif
 
+int lookup_program(char *cmd, char *full_path) {
+  // get the PATH
+  char *path_value = strdup(getenv("PATH"));
+  char *subpath;
+  int is_found = 0;
+
+  // split it by : if it's linux or ; if it's win.
+  subpath = strtok(path_value, PATH_SEP);
+
+  // loop over the subpaths
+  while (subpath != NULL) {
+    // open the dir
+    DIR *dir = opendir(subpath);
+
+    if (dir != NULL) {
+      struct dirent *entry;
+
+      // read the dir and get all it's files and dirs.
+      while ((entry = readdir(dir)) != NULL) {
+        // check if the current file is the cmd
+        if (strcmp(entry->d_name, cmd) == 0) {
+          // get teh full path of the file.
+          snprintf(full_path, sizeof(full_path), "%s/%s", subpath,
+                   entry->d_name);
+
+          // check if it's excutable.
+          if (access(full_path, X_OK) == 0) {
+            is_found = 1;
+            break;
+          }
+        }
+      }
+
+      closedir(dir);
+    }
+
+    if (is_found)
+      break;
+
+    subpath = strtok(NULL, PATH_SEP);
+  }
+
+  free(path_value);
+
+  return is_found;
+}
+
 int main(int argc, char *argv[]) {
   // Flush after every printf
   setbuf(stdout, NULL);
@@ -68,62 +115,19 @@ int main(int argc, char *argv[]) {
 
             // chearch for the cmd in the PATH.
           } else {
-            // get the PATH
-            char *path_value = strdup(getenv("PATH"));
-            char *subpath;
+            char full_path[1024] = {0};
 
-            int is_found = 0;
-
-            // split it by : if it's linux or ; if it's win.
-            subpath = strtok(path_value, PATH_SEP);
-
-            // loop over the subpaths
-            while (subpath != NULL) {
-              // open the dir
-              DIR *dir = opendir(subpath);
-
-              if (dir != NULL) {
-                struct dirent *entry;
-
-                // read the dir and get all it's files and dirs.
-                while ((entry = readdir(dir)) != NULL) {
-                  // check if the current file is the cmd
-                  if (strcmp(entry->d_name, cmd) == 0) {
-                    // get teh full path of the file.
-                    char full_path[1024];
-                    snprintf(full_path, sizeof(full_path), "%s/%s", subpath,
-                             entry->d_name);
-
-                    // check if it's excutable.
-                    if (access(full_path, X_OK) == 0) {
-                      printf("%s is %s\n", cmd, full_path);
-                      is_found = 1;
-                      break;
-                    }
-                  }
-                }
-
-                closedir(dir);
-              }
-
-              if (is_found)
-                break;
-
-              subpath = strtok(NULL, PATH_SEP);
-            }
-
-            free(path_value);
-
-            if (!is_found) {
+            if (lookup_program(cmd, full_path)) {
+              printf("%s is %s\n", cmd, full_path);
+            } else {
               printf("%s: not found\n", cmd);
             }
           }
         }
       } else {
-        if (access(parts[0], F_OK) == 0) {
-          if (access(parts[0], X_OK) == 0) {
-            system(input);
-          }
+        char full_path[1024] = {0};
+        if (lookup_program(parts[0], full_path)) {
+          system(input);
         } else {
           printf("%s: command not found\n", input);
         }
