@@ -24,12 +24,12 @@ int main(int argc, char *argv[]) {
             token = strtok(NULL, " ");
         }
 
-        if(pc == 1 && strcmp(parts[0], "exit") == 0){
+        if(strcmp(input, "exit") == 0){
             break;
         }else if(strcmp(parts[0], "echo") == 0){
             size_t i = 1;
 
-            while(i < pc && parts[i] != NULL){
+            while(i < pc){
                 printf("%s ", parts[i++]);
             }
             printf("\n");
