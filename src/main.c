@@ -9,13 +9,19 @@ int main(int argc, char *argv[]) {
     char input[100];
 
     while(1){
-      printf("$ ");
+        printf("$ ");
 
-      fgets(input, 100, stdin);
+        fgets(input, 100, stdin);
 
-      input[strlen(input) - 1] = '\0';
-      printf("%s: command not found\n", input);
+        input[strlen(input) - 1] = '\0';
+
+        if(strcmp(input, "exit") == 0){
+            break;
+        }else{
+            printf("%s: command not found\n", input);
+        }
     }
+    
 
   return 0;
 }
