@@ -38,11 +38,10 @@ int write_to_file(char input[OUTPUT_MAX_SIZE], const char *file_path) {
 
 int check_for_redirect(char *parts[INPUT_MAX_SIZE], const size_t ps,
                        char redirect_file_path[PATH_MAX]) {
-
   for (size_t i = 0; i < ps; i++) {
     char *part = parts[i];
 
-    if (strcmp(part, ">") == 0 || strcmp(part, "1>")) {
+    if (strcmp(part, ">") == 0 || strcmp(part, "1>") == 0) {
       if (i + 1 < ps) {
         snprintf(redirect_file_path, PATH_MAX, "%s", parts[i + 1]);
       }
