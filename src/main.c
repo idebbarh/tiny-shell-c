@@ -101,11 +101,17 @@ size_t input_parser(const char input[INPUT_MAX_SIZE],
         token_c = 0;
       }
     } else if (current_char == '\\') {
-      // move to the next char and save it as normal char whatever it is
-      if (input_c < input_size) {
+      if (is_single_quoting) {
+        // save the backslash as a normal char if it's inside a single quote
+        token_buffer[token_c++] = current_char;
+
+      } else if (input_c < input_size) {
+
+        // move to the next char and save it as normal char whatever it is
         token_buffer[token_c++] = input[input_c++];
-        token_buffer[token_c] = '\0';
       }
+
+      token_buffer[token_c] = '\0';
       // else save the char inside the current token buffer
     } else {
       token_buffer[token_c++] = current_char;
