@@ -36,24 +36,16 @@ int write_to_file(char input[OUTPUT_MAX_SIZE], const char *file_path) {
   return 0;
 }
 
-int check_for_redirect(char *parts[INPUT_MAX_SIZE], size_t *parts_size,
+int check_for_redirect(char *parts[INPUT_MAX_SIZE], const size_t ps,
                        char redirect_file_path[PATH_MAX]) {
-
-  size_t ps = *parts_size;
 
   for (size_t i = 0; i < ps; i++) {
     char *part = parts[i];
 
-    if (strcmp(part, ">") == 0 ||
-        (i + 1 < ps && strcmp(part, "1") && strcmp(parts[i + 1], ">"))) {
+    if (strcmp(part, ">") == 0 || (i + 1 < ps && strcmp(part, "1") == 0 &&
+                                   strcmp(parts[i + 1], ">") == 0)) {
       if (i + 1 < ps) {
         snprintf(redirect_file_path, PATH_MAX, "%s", parts[i + 1]);
-      }
-
-      (*parts_size)--;
-      for (size_t j = i; j < ps; j++) {
-        parts[j] = NULL;
-        (*parts_size)--;
       }
 
       return 1;
@@ -237,8 +229,26 @@ int main(int argc, char *argv[]) {
       size_t parts_size = input_parser(input, parts);
       char redirect_file_path[PATH_MAX];
 
+      // check if there a redirect >
       int is_redirect =
-          check_for_redirect(parts, &parts_size, redirect_file_path);
+          check_for_redirect(parts, parts_size, redirect_file_path);
+
+      // modify the parts
+      if (is_redirect) {
+        size_t start = 0;
+        size_t ps = parts_size;
+        while (start < parts_size && strcmp(parts[start], ">") != 0) {
+          start++;
+        }
+
+        for (size_t i = start; i < ps; i++) {
+          parts_size--;
+          if (parts[i] != NULL) {
+            free(parts[i]);
+            parts[i] = NULL;
+          }
+        }
+      }
 
       // if the input is exit exit the loop
       if (strcmp(input, "exit") == 0) {
@@ -368,7 +378,8 @@ int main(int argc, char *argv[]) {
 
       if (is_redirect) {
         if (write_to_file(output, redirect_file_path)) {
-          printf("ERROR: Could open file %s, does it exist?",
+          free_input_parts(parts, parts_size);
+          printf("ERROR: Could open file %s, does it exist?\n",
                  redirect_file_path);
           return 1;
         }
