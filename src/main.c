@@ -235,7 +235,8 @@ int main(int argc, char *argv[]) {
       if (is_redirect) {
         size_t start = 0;
         size_t ps = parts_size;
-        while (start < parts_size && strcmp(parts[start], ">") != 0) {
+        while (start < parts_size && strcmp(parts[start], ">") != 0 &&
+               strcmp(parts[start], "!>") != 0) {
           start++;
         }
 
