@@ -2,6 +2,7 @@
 #include <dirent.h>
 #include <errno.h>
 #include <linux/limits.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -17,7 +18,60 @@
 #define get_cwd getcwd
 #endif
 
-int lookup_program(char *cmd, char full_path[1024], size_t full_path_size) {
+#define INPUT_MAX_SIZE 100
+
+void free_input_parts(char *parts[INPUT_MAX_SIZE], size_t parts_size) {
+  for (size_t i = 0; i < parts_size; i++) {
+    char *part = parts[i];
+    if (part != NULL) {
+      free(part);
+    }
+  }
+}
+
+size_t input_parser(const char input[INPUT_MAX_SIZE],
+                    char *parts[INPUT_MAX_SIZE]) {
+  const size_t input_size = strlen(input);
+
+  char token_buffer[INPUT_MAX_SIZE] = {0};
+  size_t is_inside_sq = 0;
+  size_t input_c = 0;
+  size_t token_c = 0;
+  size_t parts_c = 0;
+
+  while (input_c < input_size) {
+    char current_char = input[input_c++];
+
+    if (current_char == '\'') {
+      if (is_inside_sq) {
+        is_inside_sq = 0;
+        parts[parts_c++] = strdup(token_buffer);
+        token_buffer[0] = '\0';
+        token_c = 0;
+      } else {
+        is_inside_sq = 1;
+      }
+    } else if (current_char == ' ') {
+      if (is_inside_sq) {
+        token_buffer[token_c++] = current_char;
+      } else {
+        parts[parts_c++] = strdup(token_buffer);
+        token_buffer[0] = '\0';
+        token_c = 0;
+      }
+    } else {
+      token_buffer[token_c++] = current_char;
+    }
+  }
+
+  if (strlen(token_buffer) > 0) {
+    parts[parts_c++] = strdup(token_buffer);
+  }
+
+  return parts_c;
+}
+
+int lookup_program(char *cmd, char full_path[PATH_MAX]) {
   // get the PATH
   char *path_value = strdup(getenv("PATH"));
   char *subpath;
@@ -39,7 +93,7 @@ int lookup_program(char *cmd, char full_path[1024], size_t full_path_size) {
         // check if the current file is the cmd
         if (strcmp(entry->d_name, cmd) == 0) {
           // get teh full path of the file.
-          snprintf(full_path, full_path_size, "%s/%s", subpath, entry->d_name);
+          snprintf(full_path, PATH_MAX, "%s/%s", subpath, entry->d_name);
 
           // check if it's excutable.
           if (access(full_path, X_OK) == 0) {
@@ -70,39 +124,31 @@ int main(int argc, char *argv[]) {
   setbuf(stdout, NULL);
 
   while (1) {
-    char input[100];
-    char *parts[100] = {0};
-    size_t pc = 0;
-    char *token;
+    char input[INPUT_MAX_SIZE];
+    char *parts[INPUT_MAX_SIZE] = {0};
 
     printf("$ ");
 
     // get user input
-    fgets(input, 100, stdin);
+    fgets(input, INPUT_MAX_SIZE, stdin);
     input[strlen(input) - 1] = '\0';
 
     // check if not empty
     if (strlen(input) > 0) {
       // split it by space and store the parts in parts
-      char input_cpy[100];
-      strcpy(input_cpy, input);
 
-      token = strtok(input_cpy, " ");
-      while (token != NULL && pc < sizeof(parts) / sizeof(parts[0])) {
-        parts[pc++] = token;
-        token = strtok(NULL, " ");
-      }
+      size_t parts_size = input_parser(input, parts);
 
       // if the input is exit exit the loop
       if (strcmp(input, "exit") == 0) {
+        free_input_parts(parts, parts_size);
         break;
-
         // check if the first part is echo cmd
       } else if (strcmp(parts[0], "echo") == 0) {
         size_t i = 1;
 
         // print all the sentences after the echo cmd
-        while (i < pc) {
+        while (i < parts_size) {
           printf("%s ", parts[i++]);
         }
 
@@ -113,7 +159,7 @@ int main(int argc, char *argv[]) {
         size_t i = 1;
 
         // loop over the cmds after it.
-        while (i < pc) {
+        while (i < parts_size) {
           char *cmd = parts[i++];
 
           // check if the cmd is builtin.
@@ -123,9 +169,9 @@ int main(int argc, char *argv[]) {
 
             // chearch for the cmd in the PATH.
           } else {
-            char full_path[1024];
+            char full_path[PATH_MAX];
 
-            if (lookup_program(cmd, full_path, sizeof(full_path))) {
+            if (lookup_program(cmd, full_path)) {
               printf("%s is %s\n", cmd, full_path);
             } else {
               printf("%s: not found\n", cmd);
@@ -138,29 +184,36 @@ int main(int argc, char *argv[]) {
         if (get_cwd(cwd, sizeof(cwd)) != NULL) {
           printf("%s\n", cwd);
         } else {
+
+          free_input_parts(parts, parts_size);
           printf(
               "ERROR: Could not get the current working dir from getcwd()\n");
           return 1;
         }
       } else if (strcmp(parts[0], "cd") == 0) {
+        // set the path to the home if the user prvoide not second argument to
+        // the cd or he uses ~
         char *path = strdup(parts[1] == NULL || strcmp(parts[1], "~") == 0
                                 ? getenv("HOME")
                                 : strdup(parts[1]));
 
+        // check if the path is exist.
         if (chdir(path) == -1 && errno == ENOENT) {
           printf("cd: %s: No such file or directory\n", path);
         }
 
         free(path);
       } else {
-        char full_path[1024] = {0};
+        char full_path[PATH_MAX] = {0};
 
-        if (lookup_program(parts[0], full_path, sizeof(full_path))) {
+        if (lookup_program(parts[0], full_path)) {
           system(input);
         } else {
           printf("%s: command not found\n", input);
         }
       }
+
+      free_input_parts(parts, parts_size);
     }
   }
 
