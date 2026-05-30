@@ -1,13 +1,18 @@
 #include <dirent.h>
+#include <linux/limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 
 #ifdef _WIN32
+#include <direct.h>
 #define PATH_SEP ";"
+#define get_cwd _getcwd
 #else
+#include <unistd.h>
 #define PATH_SEP ":"
+#define get_cwd getcwd
 #endif
 
 int lookup_program(char *cmd, char full_path[1024], size_t full_path_size) {
@@ -124,6 +129,15 @@ int main(int argc, char *argv[]) {
               printf("%s: not found\n", cmd);
             }
           }
+        }
+      } else if (strcmp(parts[0], "pwd") == 0) {
+        char cwd[PATH_MAX];
+
+        if (get_cwd(cwd, sizeof(cwd)) != NULL) {
+          printf("%s\n", cwd);
+        } else {
+          printf("ERROR: Could not get the current working dir from getcwd()");
+          return 1;
         }
       } else {
         char full_path[1024] = {0};
