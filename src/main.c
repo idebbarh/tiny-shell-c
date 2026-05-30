@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 #ifdef _WIN32
@@ -19,8 +20,50 @@
 #endif
 
 #define INPUT_MAX_SIZE 100
+#define OUTPUT_MAX_SIZE 1000
 
-void free_input_parts(char *parts[INPUT_MAX_SIZE], size_t parts_size) {
+int write_to_file(char input[OUTPUT_MAX_SIZE], const char *file_path) {
+  FILE *fptr = fopen(file_path, "w+");
+
+  if (fptr == NULL) {
+    return 1;
+  }
+
+  fprintf(fptr, "%s", input);
+
+  fclose(fptr);
+
+  return 0;
+}
+
+int check_for_redirect(char *parts[INPUT_MAX_SIZE], size_t *parts_size,
+                       char redirect_file_path[PATH_MAX]) {
+
+  size_t ps = *parts_size;
+
+  for (size_t i = 0; i < ps; i++) {
+    char *part = parts[i];
+
+    if (strcmp(part, ">") == 0 ||
+        (i + 1 < ps && strcmp(part, "1") && strcmp(parts[i + 1], ">"))) {
+      if (i + 1 < ps) {
+        snprintf(redirect_file_path, PATH_MAX, "%s", parts[i + 1]);
+      }
+
+      (*parts_size)--;
+      for (size_t j = i; j < ps; j++) {
+        parts[j] = NULL;
+        (*parts_size)--;
+      }
+
+      return 1;
+    }
+  }
+
+  return 0;
+}
+
+void free_input_parts(char *parts[INPUT_MAX_SIZE], const size_t parts_size) {
   for (size_t i = 0; i < parts_size; i++) {
     char *part = parts[i];
     if (part != NULL) {
@@ -104,9 +147,7 @@ size_t input_parser(const char input[INPUT_MAX_SIZE],
       if (is_single_quoting) {
         // save the backslash as a normal char if it's inside a single quote
         token_buffer[token_c++] = current_char;
-
       } else if (input_c < input_size) {
-
         // move to the next char and save it as normal char whatever it is
         token_buffer[token_c++] = input[input_c++];
       }
@@ -117,7 +158,6 @@ size_t input_parser(const char input[INPUT_MAX_SIZE],
       token_buffer[token_c++] = current_char;
       token_buffer[token_c] = '\0';
     }
-    //---------------------
   }
 
   // check if there is unsaved token
@@ -182,6 +222,7 @@ int main(int argc, char *argv[]) {
 
   while (1) {
     char input[INPUT_MAX_SIZE];
+    char output[OUTPUT_MAX_SIZE] = {0};
     char *parts[INPUT_MAX_SIZE] = {0};
 
     printf("$ ");
@@ -193,8 +234,11 @@ int main(int argc, char *argv[]) {
     // check if not empty
     if (strlen(input) > 0) {
       // split it by space and store the parts in parts
-
       size_t parts_size = input_parser(input, parts);
+      char redirect_file_path[PATH_MAX];
+
+      int is_redirect =
+          check_for_redirect(parts, &parts_size, redirect_file_path);
 
       // if the input is exit exit the loop
       if (strcmp(input, "exit") == 0) {
@@ -203,13 +247,17 @@ int main(int argc, char *argv[]) {
         // check if the first part is echo cmd
       } else if (strcmp(parts[0], "echo") == 0) {
         size_t i = 1;
+        size_t output_len = strlen(output);
 
         // print all the sentences after the echo cmd
         while (i < parts_size) {
-          printf("%s ", parts[i++]);
+          snprintf(output + output_len, sizeof(output) - output_len, "%s ",
+                   parts[i++]);
+
+          output_len = strlen(output);
         }
 
-        printf("\n");
+        snprintf(output + output_len, sizeof(output) - output_len, "\n");
 
         // check if it's a type cmd
       } else if (strcmp(parts[0], "type") == 0) {
@@ -218,30 +266,36 @@ int main(int argc, char *argv[]) {
         // loop over the cmds after it.
         while (i < parts_size) {
           char *cmd = parts[i++];
+          size_t output_len = strlen(output);
 
           // check if the cmd is builtin.
           if (strcmp(cmd, "echo") == 0 || strcmp(cmd, "exit") == 0 ||
               strcmp(cmd, "type") == 0 || strcmp(cmd, "pwd") == 0) {
-            printf("%s is a shell builtin\n", cmd);
+
+            snprintf(output + output_len, sizeof(output) - output_len,
+                     "%s is a shell builtin\n", cmd);
 
             // chearch for the cmd in the PATH.
           } else {
             char full_path[PATH_MAX];
 
             if (lookup_program(cmd, full_path)) {
-              printf("%s is %s\n", cmd, full_path);
+              snprintf(output + output_len, sizeof(output) - output_len,
+                       "%s is %s\n", cmd, full_path);
             } else {
-              printf("%s: not found\n", cmd);
+              snprintf(output + output_len, sizeof(output) - output_len,
+                       "%s: not found\n", cmd);
             }
           }
         }
       } else if (strcmp(parts[0], "pwd") == 0) {
         char cwd[PATH_MAX];
+        size_t output_len = strlen(output);
 
         if (get_cwd(cwd, sizeof(cwd)) != NULL) {
-          printf("%s\n", cwd);
+          snprintf(output + output_len, sizeof(output) - output_len, "%s\n",
+                   cwd);
         } else {
-
           free_input_parts(parts, parts_size);
           printf(
               "ERROR: Could not get the current working dir from getcwd()\n");
@@ -264,10 +318,63 @@ int main(int argc, char *argv[]) {
         char full_path[PATH_MAX] = {0};
 
         if (lookup_program(parts[0], full_path)) {
-          system(input);
+          int fds[2];
+          // make the pipe before the fork so the child inherit it.
+          // the pipe works this way, anything get written to the fds[1] you can
+          // read it from fds[0]
+          pipe(fds);
+
+          pid_t pid = fork();
+
+          // child
+          if (pid == 0) {
+            // close the read end because child only write
+            close(fds[0]);
+            // make whatever the fd=1 "stdout" point from terminal to whatever
+            // fds[1] points to, this is how we get the the output from the
+            // terminal
+            dup2(fds[1], 1);
+            // close the write end because the child does not need to write
+            // anymore
+            close(fds[1]);
+            // exucute the command
+            execvp(full_path, parts);
+            // this happend if the execvp fails
+            perror("execvp");
+            exit(1);
+            // parent
+          } else {
+            // close the write end in the parent because the parent only read.
+            close(fds[1]);
+
+            // get the data that the fds[0] points
+            FILE *f = fdopen(fds[0], "r");
+            char line[256];
+            size_t output_len = strlen(output);
+
+            // read it
+            while (fgets(line, sizeof(line), f) != NULL) {
+              snprintf(output + output_len, sizeof(output) - output_len, "%s",
+                       line);
+              output_len = strlen(output);
+            }
+
+            wait(NULL);
+          }
         } else {
           printf("%s: command not found\n", input);
         }
+      }
+
+      if (is_redirect) {
+        if (write_to_file(output, redirect_file_path)) {
+          printf("ERROR: Could open file %s, does it exist?",
+                 redirect_file_path);
+          return 1;
+        }
+
+      } else {
+        printf("%s", output);
       }
 
       free_input_parts(parts, parts_size);
