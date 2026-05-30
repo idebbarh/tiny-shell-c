@@ -143,8 +143,9 @@ int main(int argc, char *argv[]) {
           return 1;
         }
       } else if (strcmp(parts[0], "cd") == 0) {
-        char *path =
-            strdup(parts[1] == NULL ? getenv("HOME") : strdup(parts[1]));
+        char *path = strdup(parts[1] == NULL || strcmp(parts[1], "~") == 0
+                                ? getenv("HOME")
+                                : strdup(parts[1]));
 
         if (chdir(path) == -1 && errno == ENOENT) {
           printf("cd: %s: No such file or directory\n", path);
