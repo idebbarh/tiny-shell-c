@@ -45,9 +45,13 @@ size_t input_parser(const char input[INPUT_MAX_SIZE],
     if (current_char == '\'') {
       if (is_inside_sq) {
         is_inside_sq = 0;
-        parts[parts_c++] = strdup(token_buffer);
-        token_buffer[0] = '\0';
-        token_c = 0;
+        if (strlen(token_buffer) > 0 &&
+            (input_c + 1 >= input_size ||
+             ((input_c + 1 < input_size) && (input[input_c + 1]) == ' '))) {
+          parts[parts_c++] = strdup(token_buffer);
+          token_buffer[0] = '\0';
+          token_c = 0;
+        }
       } else {
         is_inside_sq = 1;
       }
