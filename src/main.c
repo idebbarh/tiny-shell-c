@@ -10,7 +10,7 @@
 #define PATH_SEP ":"
 #endif
 
-int lookup_program(char *cmd, char *full_path) {
+int lookup_program(char *cmd, char full_path[1024], size_t full_path_size) {
   // get the PATH
   char *path_value = strdup(getenv("PATH"));
   char *subpath;
@@ -32,8 +32,7 @@ int lookup_program(char *cmd, char *full_path) {
         // check if the current file is the cmd
         if (strcmp(entry->d_name, cmd) == 0) {
           // get teh full path of the file.
-          snprintf(full_path, sizeof(full_path), "%s/%s", subpath,
-                   entry->d_name);
+          snprintf(full_path, full_path_size, "%s/%s", subpath, entry->d_name);
 
           // check if it's excutable.
           if (access(full_path, X_OK) == 0) {
@@ -41,6 +40,8 @@ int lookup_program(char *cmd, char *full_path) {
             break;
           }
         }
+
+        full_path[0] = '\0';
       }
 
       closedir(dir);
@@ -115,9 +116,9 @@ int main(int argc, char *argv[]) {
 
             // chearch for the cmd in the PATH.
           } else {
-            char full_path[1024] = {0};
+            char full_path[1024];
 
-            if (lookup_program(cmd, full_path)) {
+            if (lookup_program(cmd, full_path, sizeof(full_path))) {
               printf("%s is %s\n", cmd, full_path);
             } else {
               printf("%s: not found\n", cmd);
@@ -126,7 +127,8 @@ int main(int argc, char *argv[]) {
         }
       } else {
         char full_path[1024] = {0};
-        if (lookup_program(parts[0], full_path)) {
+
+        if (lookup_program(parts[0], full_path, sizeof(full_path))) {
           system(input);
         } else {
           printf("%s: command not found\n", input);
