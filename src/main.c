@@ -54,6 +54,7 @@ size_t input_parser(const char input[INPUT_MAX_SIZE],
     } else if (current_char == ' ') {
       if (is_inside_sq) {
         token_buffer[token_c++] = current_char;
+        token_buffer[token_c] = '\0';
       } else if (strlen(token_buffer) > 0) {
         parts[parts_c++] = strdup(token_buffer);
         token_buffer[0] = '\0';
@@ -61,6 +62,7 @@ size_t input_parser(const char input[INPUT_MAX_SIZE],
       }
     } else {
       token_buffer[token_c++] = current_char;
+      token_buffer[token_c] = '\0';
     }
   }
 
