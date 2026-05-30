@@ -1,4 +1,6 @@
+#include <asm-generic/errno-base.h>
 #include <dirent.h>
+#include <errno.h>
 #include <linux/limits.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -136,9 +138,19 @@ int main(int argc, char *argv[]) {
         if (get_cwd(cwd, sizeof(cwd)) != NULL) {
           printf("%s\n", cwd);
         } else {
-          printf("ERROR: Could not get the current working dir from getcwd()");
+          printf(
+              "ERROR: Could not get the current working dir from getcwd()\n");
           return 1;
         }
+      } else if (strcmp(parts[0], "cd") == 0) {
+        char *path =
+            strdup(parts[1] == NULL ? getenv("HOME") : strdup(parts[1]));
+
+        if (chdir(path) == -1 && errno == ENOENT) {
+          printf("cd: %s: No such file or directory\n", path);
+        }
+
+        free(path);
       } else {
         char full_path[1024] = {0};
 
