@@ -100,6 +100,12 @@ size_t input_parser(const char input[INPUT_MAX_SIZE],
         token_buffer[0] = '\0';
         token_c = 0;
       }
+    } else if (current_char == '\\') {
+      // move to the next char and save it as normal char whatever it is
+      if (input_c < input_size) {
+        token_buffer[token_c++] = input[input_c++];
+        token_buffer[token_c] = '\0';
+      }
       // else save the char inside the current token buffer
     } else {
       token_buffer[token_c++] = current_char;
