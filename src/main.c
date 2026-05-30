@@ -236,7 +236,7 @@ int main(int argc, char *argv[]) {
         size_t start = 0;
         size_t ps = parts_size;
         while (start < parts_size && strcmp(parts[start], ">") != 0 &&
-               strcmp(parts[start], "!>") != 0) {
+               strcmp(parts[start], "1>") != 0) {
           start++;
         }
 
