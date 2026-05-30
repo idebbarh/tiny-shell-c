@@ -34,17 +34,24 @@ size_t input_parser(const char input[INPUT_MAX_SIZE],
   const size_t input_size = strlen(input);
 
   char token_buffer[INPUT_MAX_SIZE] = {0};
-  size_t is_inside_sq = 0;
+  size_t is_single_quoting = 0;
+  size_t is_double_quoting = 0;
+  size_t is_quoting = 0;
   size_t input_c = 0;
   size_t token_c = 0;
   size_t parts_c = 0;
 
   while (input_c < input_size) {
+    // get the current char
     char current_char = input[input_c++];
 
     if (current_char == '\'') {
-      if (is_inside_sq) {
-        is_inside_sq = 0;
+      if (is_single_quoting) {
+        // mark as out of quoting
+        is_single_quoting = 0;
+        // before saving the token check if the token not empty and the next is
+        // either the end or there is space between the curent one and the next
+        // token
         if (strlen(token_buffer) > 0 &&
             (input_c + 1 >= input_size ||
              ((input_c + 1 < input_size) && (input[input_c + 1]) == ' '))) {
@@ -52,24 +59,56 @@ size_t input_parser(const char input[INPUT_MAX_SIZE],
           token_buffer[0] = '\0';
           token_c = 0;
         }
-      } else {
-        is_inside_sq = 1;
-      }
-    } else if (current_char == ' ') {
-      if (is_inside_sq) {
+
+        // if it's double quoting save the single quote as normal char
+      } else if (is_double_quoting) {
         token_buffer[token_c++] = current_char;
         token_buffer[token_c] = '\0';
+      } else {
+        is_single_quoting = 1;
+      }
+
+    } else if (current_char == '"') {
+      if (is_double_quoting) {
+        is_double_quoting = 0;
+        // before saving the token check if the token not empty and the next is
+        // either the end or there is space between the curent one and the next
+        // token
+        if (strlen(token_buffer) > 0 &&
+            (input_c + 1 >= input_size ||
+             ((input_c + 1 < input_size) && (input[input_c + 1]) == ' '))) {
+          parts[parts_c++] = strdup(token_buffer);
+          token_buffer[0] = '\0';
+          token_c = 0;
+        }
+        // if it's signle quoting save the double quote as normal char
+      } else if (is_single_quoting) {
+        token_buffer[token_c++] = current_char;
+        token_buffer[token_c] = '\0';
+      } else {
+        is_double_quoting = 1;
+      }
+    } else if (current_char == ' ') {
+      // if we are inside single quotes then trait the empty space as normal
+      // char and save it inside the current token buffer
+      if (is_single_quoting || is_double_quoting) {
+        token_buffer[token_c++] = current_char;
+        token_buffer[token_c] = '\0';
+        // else check if the token is not empty then save the token
       } else if (strlen(token_buffer) > 0) {
         parts[parts_c++] = strdup(token_buffer);
         token_buffer[0] = '\0';
         token_c = 0;
       }
+      // else save the char inside the current token buffer
     } else {
       token_buffer[token_c++] = current_char;
       token_buffer[token_c] = '\0';
     }
+    //---------------------
   }
 
+  // check if there is unsaved token
   if (strlen(token_buffer) > 0) {
     parts[parts_c++] = strdup(token_buffer);
   }
