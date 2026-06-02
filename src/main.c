@@ -46,7 +46,7 @@ char check_for_redirect(char *parts[INPUT_MAX_SIZE], const size_t ps,
         snprintf(redirect_file_path, PATH_MAX, "%s", parts[i + 1]);
       }
 
-      return part[0] == '>' ? '1' : part[0];
+      return strlen(part) == 1 ? '1' : part[0];
     }
   }
 
