@@ -377,14 +377,12 @@ int main(int argc, char *argv[]) {
 
             // read it
             while (fgets(line, sizeof(line), f_out) != NULL) {
-              printf("fout uni\n");
               snprintf(stdout_value + stdout_value_len,
                        sizeof(stdout_value) - stdout_value_len, "%s", line);
               stdout_value_len = strlen(stdout_value);
             }
 
             while (fgets(line, sizeof(line), f_err) != NULL) {
-              printf("ferr uni\n");
               snprintf(stderr_value + stderr_value_len,
                        sizeof(stderr_value) - stderr_value_len, "%s", line);
               stderr_value_len = strlen(stderr_value);
