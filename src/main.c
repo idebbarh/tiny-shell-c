@@ -237,7 +237,7 @@ int main(int argc, char *argv[]) {
         size_t ps = parts_size;
         while (start < parts_size &&
                (strlen(parts[start]) == 0 ||
-                parts[start][strlen(parts[start])] != '>')) {
+                parts[start][strlen(parts[start]) - 1] != '>')) {
           start++;
         }
 
@@ -333,25 +333,30 @@ int main(int argc, char *argv[]) {
         char full_path[PATH_MAX] = {0};
 
         if (lookup_program(parts[0], full_path)) {
-          int fds[2];
+          int stdout_pipe[2];
+          int stderr_pipe[2];
           // make the pipe before the fork so the child inherit it.
           // the pipe works this way, anything get written to the fds[1] you can
           // read it from fds[0]
-          pipe(fds);
+          pipe(stdout_pipe);
+          pipe(stderr_pipe);
 
           pid_t pid = fork();
 
           // child
           if (pid == 0) {
             // close the read end because child only write
-            close(fds[0]);
+            close(stdout_pipe[0]);
+            close(stderr_pipe[0]);
             // make whatever the fd=1 "stdout" point from terminal to whatever
             // fds[1] points to, this is how we get the the stdout_value from
             // the terminal
-            dup2(fds[1], 1);
+            dup2(stdout_pipe[1], 1);
+            dup2(stderr_pipe[1], 2);
             // close the write end because the child does not need to write
             // anymore
-            close(fds[1]);
+            close(stdout_pipe[1]);
+            close(stderr_pipe[1]);
             // exucute the command
             execvp(full_path, parts);
             // this happend if the execvp fails
@@ -360,18 +365,29 @@ int main(int argc, char *argv[]) {
             // parent
           } else {
             // close the write end in the parent because the parent only read.
-            close(fds[1]);
+            close(stdout_pipe[1]);
+            close(stderr_pipe[1]);
 
             // get the data that the fds[0] points
-            FILE *f = fdopen(fds[0], "r");
+            FILE *f_out = fdopen(stdout_pipe[0], "r");
+            FILE *f_err = fdopen(stderr_pipe[0], "r");
             char line[256];
             size_t stdout_value_len = strlen(stdout_value);
+            size_t stderr_value_len = strlen(stderr_value);
 
             // read it
-            while (fgets(line, sizeof(line), f) != NULL) {
+            while (fgets(line, sizeof(line), f_out) != NULL) {
+              printf("fout uni\n");
               snprintf(stdout_value + stdout_value_len,
                        sizeof(stdout_value) - stdout_value_len, "%s", line);
               stdout_value_len = strlen(stdout_value);
+            }
+
+            while (fgets(line, sizeof(line), f_err) != NULL) {
+              printf("ferr uni\n");
+              snprintf(stderr_value + stderr_value_len,
+                       sizeof(stderr_value) - stderr_value_len, "%s", line);
+              stderr_value_len = strlen(stderr_value);
             }
 
             wait(NULL);
@@ -406,6 +422,10 @@ int main(int argc, char *argv[]) {
 
       if (strlen(terminal_output)) {
         printf("%s", terminal_output);
+
+        if (terminal_output[strlen(terminal_output) - 1] != '\n') {
+          printf("\n");
+        }
       }
 
       free_input_parts(parts, parts_size);
