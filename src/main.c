@@ -22,8 +22,9 @@
 #define INPUT_MAX_SIZE 100
 #define OUTPUT_MAX_SIZE 1000
 
-int write_to_file(char input[OUTPUT_MAX_SIZE], const char *file_path) {
-  FILE *fptr = fopen(file_path, "w+");
+int write_to_file(const char input[OUTPUT_MAX_SIZE], const char *file_path,
+                  const char *mode) {
+  FILE *fptr = fopen(file_path, mode);
 
   if (fptr == NULL) {
     return 1;
@@ -37,7 +38,8 @@ int write_to_file(char input[OUTPUT_MAX_SIZE], const char *file_path) {
 }
 
 char check_for_redirect(char *parts[INPUT_MAX_SIZE], const size_t ps,
-                        char redirect_file_path[PATH_MAX]) {
+                        char redirect_file_path[PATH_MAX],
+                        int *is_append_redirect) {
   for (size_t i = 0; i < ps; i++) {
     char *part = parts[i];
 
@@ -46,7 +48,10 @@ char check_for_redirect(char *parts[INPUT_MAX_SIZE], const size_t ps,
         snprintf(redirect_file_path, PATH_MAX, "%s", parts[i + 1]);
       }
 
-      return strlen(part) == 1 ? '1' : part[0];
+      *is_append_redirect =
+          strlen(part) == 3 || (strlen(part) == 2 && part[0] == '>') ? 1 : 0;
+
+      return strlen(part) == 1 || part[0] == '>' ? '1' : part[0];
     }
   }
 
@@ -228,8 +233,9 @@ int main(int argc, char *argv[]) {
       char redirect_file_path[PATH_MAX];
 
       // check if there a redirect >
-      char redirect_type =
-          check_for_redirect(parts, parts_size, redirect_file_path);
+      int is_append_redirect = 0;
+      char redirect_type = check_for_redirect(
+          parts, parts_size, redirect_file_path, &is_append_redirect);
 
       // modify the parts
       if (redirect_type != '\0') {
@@ -402,7 +408,8 @@ int main(int argc, char *argv[]) {
           strlen(stderr_value) ? stderr_value : stdout_value;
 
       if (redirect_type == '1') {
-        if (write_to_file(stdout_value, redirect_file_path)) {
+        if (write_to_file(stdout_value, redirect_file_path,
+                          is_append_redirect ? "a+" : "w+")) {
           free_input_parts(parts, parts_size);
           return 1;
         }
@@ -410,7 +417,8 @@ int main(int argc, char *argv[]) {
         terminal_output = stderr_value;
 
       } else if (redirect_type == '2') {
-        if (write_to_file(stderr_value, redirect_file_path)) {
+        if (write_to_file(stderr_value, redirect_file_path,
+                          is_append_redirect ? "a+" : "w+")) {
           free_input_parts(parts, parts_size);
           return 1;
         }
