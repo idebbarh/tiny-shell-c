@@ -215,11 +215,37 @@ int lookup_program(char *cmd, char full_path[PATH_MAX]) {
 
 char *cmd_name_generator(const char *text, int state) {
   static int list_index, len;
+  struct dirent *entry;
   char *name;
+  DIR *dir = NULL;
 
   if (!state) {
     list_index = 0;
     len = strlen(text);
+
+    if (strncmp(text, "./", 2) == 0) {
+      dir = opendir("./");
+    }
+  }
+
+  if (dir != NULL) {
+    char full_path[PATH_MAX] = {0};
+    int found = 0;
+
+    while ((entry = readdir(dir)) != NULL) {
+      snprintf(full_path, PATH_MAX, "./%s", entry->d_name);
+
+      if (strncmp(full_path, text, len) == 0) {
+        found = 1;
+        break;
+      }
+    }
+
+    closedir(dir);
+
+    if (found) {
+      return strdup(full_path);
+    }
   }
 
   while ((name = cmd_names[list_index++])) {
