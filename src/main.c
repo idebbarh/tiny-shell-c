@@ -2,6 +2,7 @@
 #include <dirent.h>
 #include <errno.h>
 #include <linux/limits.h>
+#include <readline/readline.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -21,6 +22,8 @@
 
 #define INPUT_MAX_SIZE 100
 #define OUTPUT_MAX_SIZE 1000
+
+char *cmd_names[] = {"exit", "echo", "type", "pwd", "cd", NULL};
 
 int write_to_file(const char input[OUTPUT_MAX_SIZE], const char *file_path,
                   const char *mode) {
@@ -210,21 +213,45 @@ int lookup_program(char *cmd, char full_path[PATH_MAX]) {
   return is_found;
 }
 
+char *cmd_name_generator(const char *text, int state) {
+  static int list_index, len;
+  char *name;
+
+  if (!state) {
+    list_index = 0;
+    len = strlen(text);
+  }
+
+  while ((name = cmd_names[list_index++])) {
+    if (strncmp(name, text, len) == 0) {
+      return strdup(name);
+    }
+  }
+
+  return NULL;
+}
+
+char **cmd_name_completion(const char *text, int start, int end) {
+  rl_attempted_completion_over = 1;
+
+  return rl_completion_matches(text, cmd_name_generator);
+}
+
 int main(int argc, char *argv[]) {
   // Flush after every printf
   setbuf(stdout, NULL);
+  char *line;
 
-  while (1) {
-    char input[INPUT_MAX_SIZE];
+  rl_attempted_completion_function = cmd_name_completion;
+
+  while ((line = readline("$ ")) != NULL) {
+    char input[INPUT_MAX_SIZE] = {0};
     char stdout_value[OUTPUT_MAX_SIZE] = {0};
     char stderr_value[OUTPUT_MAX_SIZE] = {0};
     char *parts[INPUT_MAX_SIZE] = {0};
 
-    printf("$ ");
-
     // get user input
-    fgets(input, INPUT_MAX_SIZE, stdin);
-    input[strlen(input) - 1] = '\0';
+    snprintf(input, INPUT_MAX_SIZE, "%s", line);
 
     // check if not empty
     if (strlen(input) > 0) {
@@ -438,5 +465,6 @@ int main(int argc, char *argv[]) {
     }
   }
 
+  free(line);
   return 0;
 }
