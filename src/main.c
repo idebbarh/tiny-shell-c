@@ -214,47 +214,85 @@ int lookup_program(char *cmd, char full_path[PATH_MAX]) {
 }
 
 char *cmd_name_generator(const char *text, int state) {
-  static int list_index, len;
+  static int list_index, len, is_external;
   struct dirent *entry;
-  char *name;
-  DIR *dir = NULL;
+  char *name, *path, *subpath, *result = NULL;
+  DIR *dir;
 
   if (!state) {
     list_index = 0;
     len = strlen(text);
+    name = NULL;
+    path = NULL;
+    subpath = NULL;
+    result = NULL;
+    dir = NULL;
+  }
 
+  while ((name = cmd_names[list_index])) {
+    list_index++;
+
+    if (strncmp(name, text, len) == 0) {
+      result = strdup(name);
+      break;
+    }
+  }
+
+  if (result != NULL)
+    return result;
+
+  if (!state) {
     if (strncmp(text, "./", 2) == 0) {
       dir = opendir("./");
+      is_external = 0;
+    } else {
+      path = strdup(getenv("PATH"));
+      subpath = strtok(path, PATH_SEP);
+      dir = opendir(subpath);
+      is_external = 1;
     }
   }
 
   if (dir != NULL) {
-    char full_path[PATH_MAX] = {0};
+    entry = readdir(dir);
+
+    char cmp_target[PATH_MAX] = {0};
     int found = 0;
 
-    while ((entry = readdir(dir)) != NULL) {
-      snprintf(full_path, PATH_MAX, "./%s", entry->d_name);
+    while (entry != NULL) {
+      snprintf(cmp_target, PATH_MAX, is_external ? "%s" : "./%s",
+               entry->d_name);
 
-      if (strncmp(full_path, text, len) == 0) {
-        found = 1;
+      if (strncmp(cmp_target, text, len) == 0) {
+        result = strdup(cmp_target);
         break;
       }
-    }
 
+      entry = readdir(dir);
+
+      if (entry == NULL && subpath != NULL) {
+        subpath = strtok(NULL, PATH_SEP);
+
+        if (subpath != NULL) {
+          closedir(dir);
+          dir = opendir(subpath);
+
+          if (dir != NULL) {
+            entry = readdir(dir);
+          }
+        }
+      }
+    };
+  }
+
+  if (path != NULL && result == NULL)
+    free(path);
+
+  if (dir != NULL && result == NULL) {
     closedir(dir);
-
-    if (found) {
-      return strdup(full_path);
-    }
   }
 
-  while ((name = cmd_names[list_index++])) {
-    if (strncmp(name, text, len) == 0) {
-      return strdup(name);
-    }
-  }
-
-  return NULL;
+  return result;
 }
 
 char **cmd_name_completion(const char *text, int start, int end) {
