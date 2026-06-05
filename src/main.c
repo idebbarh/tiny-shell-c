@@ -23,7 +23,7 @@
 #define INPUT_MAX_SIZE 100
 #define OUTPUT_MAX_SIZE 1000
 
-char *cmd_names[] = {"exit", "echo", "type", "pwd", "cd", NULL};
+char *cmd_names[] = {"exit", "echo", "type", "pwd", "cd", "complete", NULL};
 
 int write_to_file(const char input[OUTPUT_MAX_SIZE], const char *file_path,
                   const char *mode) {
@@ -382,7 +382,8 @@ int main(int argc, char *argv[]) {
 
           // check if the cmd is builtin.
           if (strcmp(cmd, "echo") == 0 || strcmp(cmd, "exit") == 0 ||
-              strcmp(cmd, "type") == 0 || strcmp(cmd, "pwd") == 0) {
+              strcmp(cmd, "type") == 0 || strcmp(cmd, "pwd") == 0 ||
+              strcmp(cmd, "complete")) {
 
             snprintf(stdout_value + stdout_value_len,
                      sizeof(stdout_value) - stdout_value_len,
