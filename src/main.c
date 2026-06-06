@@ -477,7 +477,7 @@ int main(int argc, char *argv[]) {
             if (complete_history_size < COMPLETE_HISTORY_CAPACITY) {
               char *new_cmd = parts[3];
               char *new_path = parts[2];
-              char cmd_to_path[COMPLETE_HISTORY_ELEM_CAPACITY] = {NULL};
+              char cmd_to_path[COMPLETE_HISTORY_ELEM_CAPACITY] = {0};
 
               if (strlen(new_cmd) + strlen(new_path) + 2 <
                   COMPLETE_HISTORY_ELEM_CAPACITY) {
