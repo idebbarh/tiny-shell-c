@@ -311,22 +311,22 @@ char **cmd_name_completion(const char *text, int start, int end) {
 
   if (start == 0) {
     matches = rl_completion_matches(text, cmd_name_generator);
-  }
 
-  matches = rl_completion_matches(text, rl_filename_completion_function);
+    if (matches) {
+      // Calculate the number of matches
+      int count = 0;
+      while (matches[count] != NULL) {
+        count++;
+      }
 
-  if (matches) {
-    // Calculate the number of matches
-    int count = 0;
-    while (matches[count] != NULL) {
-      count++;
+      // Sort the matches alphabetically
+      qsort(matches, count, sizeof(char *), compare_strings);
     }
 
-    // Sort the matches alphabetically
-    qsort(matches, count, sizeof(char *), compare_strings);
+    return matches;
   }
 
-  return matches;
+  return rl_completion_matches(text, rl_filename_completion_function);
 }
 
 int main(int argc, char *argv[]) {
