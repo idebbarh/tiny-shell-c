@@ -294,15 +294,11 @@ char *cmd_name_generator(const char *text, int state) {
     closedir(dir);
   }
 
-  if (result != NULL) {
-    printf("The result is: %s\n", result);
-  }
-
   return result;
 }
 // Comparison function for qsort
 static int compare_strings(const void *a, const void *b) {
-  return strlen(*(const char **)b) - strlen(*(const char **)a);
+  return strlen(*(const char **)a) - strlen(*(const char **)b);
 }
 
 char **cmd_name_completion(const char *text, int start, int end) {
