@@ -294,6 +294,10 @@ char *cmd_name_generator(const char *text, int state) {
     closedir(dir);
   }
 
+  if (result != NULL) {
+    printf("The result is: %s\n", result);
+  }
+
   return result;
 }
 
