@@ -431,6 +431,15 @@ int main(int argc, char *argv[]) {
         }
 
         free(path);
+      } else if (strcmp(parts[0], "complete") == 0) {
+        if (parts_size >= 3) {
+          if (strcmp(parts[1], "-p") == 0) {
+            size_t stdout_value_len = strlen(stdout_value);
+            snprintf(stdout_value + stdout_value_len,
+                     sizeof(stdout_value) - stdout_value_len,
+                     "complete: %s: no completion specification", parts[2]);
+          }
+        }
       } else {
         char full_path[PATH_MAX] = {0};
 
