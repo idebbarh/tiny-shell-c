@@ -20,12 +20,14 @@
 #define get_cwd getcwd
 #endif
 
-#define INPUT_MAX_SIZE 100
-#define OUTPUT_MAX_SIZE 1000
+#define INPUT_CAPACITY 100
+#define OUTPUT_CAPACITY 1000
+#define COMPLETE_HISTORY_CAPACITY 1000
+#define COMPLETE_HISTORY_ELEM_CAPACITY 100
 
 char *cmd_names[] = {"exit", "echo", "type", "pwd", "cd", "complete", NULL};
 
-int write_to_file(const char input[OUTPUT_MAX_SIZE], const char *file_path,
+int write_to_file(const char input[OUTPUT_CAPACITY], const char *file_path,
                   const char *mode) {
   FILE *fptr = fopen(file_path, mode);
 
@@ -40,7 +42,7 @@ int write_to_file(const char input[OUTPUT_MAX_SIZE], const char *file_path,
   return 0;
 }
 
-char check_for_redirect(char *parts[INPUT_MAX_SIZE], const size_t ps,
+char check_for_redirect(char *parts[INPUT_CAPACITY], const size_t ps,
                         char redirect_file_path[PATH_MAX],
                         int *is_append_redirect) {
   for (size_t i = 0; i < ps; i++) {
@@ -61,7 +63,7 @@ char check_for_redirect(char *parts[INPUT_MAX_SIZE], const size_t ps,
   return '\0';
 }
 
-void free_input_parts(char *parts[INPUT_MAX_SIZE], const size_t parts_size) {
+void free_input_parts(char *parts[INPUT_CAPACITY], const size_t parts_size) {
   for (size_t i = 0; i < parts_size; i++) {
     char *part = parts[i];
     if (part != NULL) {
@@ -70,11 +72,11 @@ void free_input_parts(char *parts[INPUT_MAX_SIZE], const size_t parts_size) {
   }
 }
 
-size_t input_parser(const char input[INPUT_MAX_SIZE],
-                    char *parts[INPUT_MAX_SIZE]) {
+size_t input_parser(const char input[INPUT_CAPACITY],
+                    char *parts[INPUT_CAPACITY]) {
   const size_t input_size = strlen(input);
 
-  char token_buffer[INPUT_MAX_SIZE] = {0};
+  char token_buffer[INPUT_CAPACITY] = {0};
   size_t is_single_quoting = 0;
   size_t is_double_quoting = 0;
   size_t input_c = 0;
@@ -312,14 +314,17 @@ int main(int argc, char *argv[]) {
 
   rl_attempted_completion_function = cmd_name_completion;
 
+  char *complete_history[COMPLETE_HISTORY_CAPACITY] = {NULL};
+  size_t complete_history_size = 0;
+
   while ((line = readline("$ ")) != NULL) {
-    char input[INPUT_MAX_SIZE] = {0};
-    char stdout_value[OUTPUT_MAX_SIZE] = {0};
-    char stderr_value[OUTPUT_MAX_SIZE] = {0};
-    char *parts[INPUT_MAX_SIZE] = {0};
+    char input[INPUT_CAPACITY] = {0};
+    char stdout_value[OUTPUT_CAPACITY] = {0};
+    char stderr_value[OUTPUT_CAPACITY] = {0};
+    char *parts[INPUT_CAPACITY] = {0};
 
     // get user input
-    snprintf(input, INPUT_MAX_SIZE, "%s", line);
+    snprintf(input, INPUT_CAPACITY, "%s", line);
 
     // check if not empty
     if (strlen(input) > 0) {
@@ -433,11 +438,80 @@ int main(int argc, char *argv[]) {
         free(path);
       } else if (strcmp(parts[0], "complete") == 0) {
         if (parts_size >= 3) {
-          if (strcmp(parts[1], "-p") == 0) {
+          char *flag = parts[1];
+
+          if (strcmp(flag, "-p") == 0) {
+            char *lookup_cmd = parts[2];
+            size_t stderr_value_len = strlen(stderr_value);
             size_t stdout_value_len = strlen(stdout_value);
-            snprintf(stdout_value + stdout_value_len,
-                     sizeof(stdout_value) - stdout_value_len,
-                     "complete: %s: no completion specification", parts[2]);
+            int is_cmd_found = 0;
+
+            for (size_t i = 0; i < complete_history_size; i++) {
+              if (complete_history[i] == NULL)
+                continue;
+
+              char *history_elem = strdup(complete_history[i]);
+
+              char *prev_cmd = strtok(history_elem, ":");
+              char *prev_path = strtok(NULL, ":");
+
+              if (strcmp(prev_cmd, lookup_cmd) == 0) {
+                is_cmd_found = 1;
+                snprintf(stdout_value + stdout_value_len,
+                         sizeof(stdout_value) - stdout_value_len,
+                         "complete -C '%s' %s", prev_path, lookup_cmd);
+              }
+
+              free(history_elem);
+
+              if (is_cmd_found)
+                break;
+            }
+
+            if (!is_cmd_found) {
+              snprintf(stderr_value + stderr_value_len,
+                       sizeof(stderr_value) - stderr_value_len,
+                       "complete: %s: no completion specification", lookup_cmd);
+            }
+          } else if (parts_size > 3 && strcmp(flag, "-C") == 0) {
+            if (complete_history_size < COMPLETE_HISTORY_CAPACITY) {
+              char *new_cmd = parts[3];
+              char *new_path = parts[2];
+              char cmd_to_path[COMPLETE_HISTORY_ELEM_CAPACITY] = {NULL};
+
+              if (strlen(new_cmd) + strlen(new_path) + 2 <
+                  COMPLETE_HISTORY_ELEM_CAPACITY) {
+                snprintf(cmd_to_path, COMPLETE_HISTORY_ELEM_CAPACITY, "%s:%s",
+                         new_cmd, new_path);
+                int is_new_cmd = 1;
+
+                for (size_t i = 0; i < complete_history_size; i++) {
+
+                  if (complete_history[i] == NULL)
+                    continue;
+
+                  char *history_elem = strdup(complete_history[i]);
+
+                  char *prev_cmd = strtok(history_elem, ":");
+
+                  if (strcmp(prev_cmd, new_cmd) == 0) {
+                    is_new_cmd = 0;
+                    free(complete_history[i]);
+                    complete_history[i] = strdup(cmd_to_path);
+                  }
+
+                  free(history_elem);
+
+                  if (!is_new_cmd)
+                    break;
+                }
+
+                if (is_new_cmd) {
+                  complete_history[complete_history_size++] =
+                      strdup(cmd_to_path);
+                }
+              }
+            }
           }
         }
       } else {
@@ -544,5 +618,14 @@ int main(int argc, char *argv[]) {
   }
 
   free(line);
+
+  for (size_t i = 0; i < complete_history_size; i++) {
+    char *history_elem = complete_history[i];
+
+    if (history_elem == NULL)
+      continue;
+
+    free(history_elem);
+  }
   return 0;
 }
