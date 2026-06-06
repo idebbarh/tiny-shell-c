@@ -1,1 +1,0 @@
-bash: complete: sdf: no completion specification
