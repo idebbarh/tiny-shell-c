@@ -302,7 +302,7 @@ char *cmd_name_generator(const char *text, int state) {
 }
 // Comparison function for qsort
 static int compare_strings(const void *a, const void *b) {
-  return strlen(*(const char **)a) - strlen(*(const char **)b);
+  return strlen(*(const char **)b) - strlen(*(const char **)a);
 }
 
 char **cmd_name_completion(const char *text, int start, int end) {
