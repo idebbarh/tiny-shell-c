@@ -218,8 +218,9 @@ int lookup_program(char *cmd, char full_path[PATH_MAX]) {
 char *cmd_name_generator(const char *text, int state) {
   static int list_index, len, is_external;
   struct dirent *entry;
-  char *name, *path, *subpath, *result = NULL;
-  DIR *dir;
+  static char *name, *path, *subpath;
+  static DIR *dir;
+  char *result = NULL;
 
   if (!state) {
     list_index = 0;
@@ -227,7 +228,6 @@ char *cmd_name_generator(const char *text, int state) {
     name = NULL;
     path = NULL;
     subpath = NULL;
-    result = NULL;
     dir = NULL;
   }
 
