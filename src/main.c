@@ -296,30 +296,12 @@ char *cmd_name_generator(const char *text, int state) {
 
   return result;
 }
-// Comparison function for qsort
-static int compare_strings(const void *a, const void *b) {
-  return strlen(*(const char **)a) - strlen(*(const char **)b);
-}
 
 char **cmd_name_completion(const char *text, int start, int end) {
   rl_attempted_completion_over = 1;
-  char **matches;
 
   if (start == 0) {
-    matches = rl_completion_matches(text, cmd_name_generator);
-
-    if (matches) {
-      // Calculate the number of matches
-      int count = 0;
-      while (matches[count] != NULL) {
-        count++;
-      }
-
-      // Sort the matches alphabetically
-      qsort(matches, count, sizeof(char *), compare_strings);
-    }
-
-    return matches;
+    return rl_completion_matches(text, cmd_name_generator);
   }
 
   return rl_completion_matches(text, rl_filename_completion_function);
