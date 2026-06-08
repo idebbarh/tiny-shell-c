@@ -217,18 +217,14 @@ int lookup_program(char *cmd, char full_path[PATH_MAX]) {
 
 char *cmd_name_generator(const char *text, int state) {
   static int list_index, len, is_external;
-  static struct dirent *entry;
+  struct dirent *entry;
   static char *name, *path, *subpath;
-  static DIR *dir;
   char *result = NULL;
+  DIR *dir;
 
   if (!state) {
     list_index = 0;
     len = strlen(text);
-    name = NULL;
-    path = NULL;
-    subpath = NULL;
-    dir = NULL;
   }
 
   while ((name = cmd_names[list_index])) {
@@ -259,7 +255,6 @@ char *cmd_name_generator(const char *text, int state) {
     entry = readdir(dir);
 
     char cmp_target[PATH_MAX] = {0};
-    int found = 0;
 
     while (entry != NULL) {
       snprintf(cmp_target, PATH_MAX, is_external ? "%s" : "./%s",
