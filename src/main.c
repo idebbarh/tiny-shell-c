@@ -245,7 +245,7 @@ int find_complete_history_completer(char **complete_history,
 
     free(history_elem);
 
-    if (completer)
+    if (*completer)
       return 1;
   }
 
