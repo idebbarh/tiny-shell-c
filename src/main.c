@@ -25,7 +25,16 @@
 #define COMPLETE_HISTORY_CAPACITY 1000
 #define COMPLETE_HISTORY_ELEM_CAPACITY 100
 
-char *cmd_names[] = {"exit", "echo", "type", "pwd", "cd", "complete", NULL};
+typedef struct {
+  char *complete_history[COMPLETE_HISTORY_CAPACITY];
+  size_t complete_history_size;
+} CompleteCMDState;
+
+static CompleteCMDState complete_cmd_state = {0};
+static char *curr_completer_value[1] = {NULL};
+
+static const char *cmd_names[] = {"exit", "echo",     "type", "pwd",
+                                  "cd",   "complete", NULL};
 
 int write_to_file(const char input[OUTPUT_CAPACITY], const char *file_path,
                   const char *mode) {
@@ -215,10 +224,39 @@ int lookup_program(char *cmd, char full_path[PATH_MAX]) {
   return is_found;
 }
 
+int find_complete_history_completer(char **complete_history,
+                                    size_t complete_history_size,
+                                    char *lookup_cmd, char **completer) {
+
+  int is_cmd_found = 0;
+
+  for (size_t i = 0; i < complete_history_size; i++) {
+    if (complete_history[i] == NULL)
+      continue;
+
+    char *history_elem = strdup(complete_history[i]);
+
+    char *prev_cmd = strtok(history_elem, ":");
+    char *prev_path = strtok(NULL, ":");
+
+    if (strcmp(prev_cmd, lookup_cmd) == 0) {
+      *completer = strdup(prev_path);
+    }
+
+    free(history_elem);
+
+    if (completer)
+      return 1;
+  }
+
+  return 0;
+}
+
 char *cmd_name_generator(const char *text, int state) {
-  static int list_index, len, is_external;
+  static int list_index, len, is_in_cwd;
   static struct dirent *entry;
-  static char *name, *path, *subpath;
+  static char *path, *subpath;
+  static const char *name;
   static DIR *dir = NULL;
 
   char *result = NULL;
@@ -243,12 +281,12 @@ char *cmd_name_generator(const char *text, int state) {
   if (!state) {
     if (strncmp(text, "./", 2) == 0) {
       dir = opendir("./");
-      is_external = 0;
+      is_in_cwd = 0;
     } else {
       path = strdup(getenv("PATH"));
       subpath = strtok(path, PATH_SEP);
       dir = opendir(subpath);
-      is_external = 1;
+      is_in_cwd = 1;
     }
   }
 
@@ -258,8 +296,7 @@ char *cmd_name_generator(const char *text, int state) {
     char cmp_target[PATH_MAX] = {0};
 
     while (entry != NULL) {
-      snprintf(cmp_target, PATH_MAX, is_external ? "%s" : "./%s",
-               entry->d_name);
+      snprintf(cmp_target, PATH_MAX, is_in_cwd ? "%s" : "./%s", entry->d_name);
 
       if (strncmp(cmp_target, text, len) == 0) {
         result = strdup(cmp_target);
@@ -283,14 +320,27 @@ char *cmd_name_generator(const char *text, int state) {
     };
   }
 
-  if (path != NULL && result == NULL)
-    free(path);
+  if (result == NULL) {
+    if (path)
+      free(path);
 
-  if (dir != NULL && result == NULL) {
-    closedir(dir);
+    if (dir)
+      closedir(dir);
   }
 
   return result;
+}
+
+char *completer_generator(const char *text, int state) {
+  static int list_index, len;
+
+  if (!state) {
+    list_index = 0;
+    len = strlen(text);
+    return curr_completer_value[0];
+  }
+
+  return NULL;
 }
 
 char **cmd_name_completion(const char *text, int start, int end) {
@@ -300,7 +350,40 @@ char **cmd_name_completion(const char *text, int start, int end) {
     return rl_completion_matches(text, cmd_name_generator);
   }
 
-  return rl_completion_matches(text, rl_filename_completion_function);
+  char **file_matches =
+      rl_completion_matches(text, rl_filename_completion_function);
+
+  char *current_line = strdup(rl_line_buffer);
+  char *first_cmd = strtok(current_line, " ");
+  char *completer = NULL;
+
+  if (find_complete_history_completer(complete_cmd_state.complete_history,
+                                      complete_cmd_state.complete_history_size,
+                                      first_cmd, &completer)) {
+
+    FILE *completer_stdout = popen(completer, "r");
+    char line[256];
+
+    if (completer_stdout != NULL) {
+      while (fgets(line, sizeof(line), completer_stdout) != NULL) {
+        line[strlen(line) - 1] = '\0';
+        curr_completer_value[0] = strdup(line);
+        break;
+      }
+
+      pclose(completer_stdout);
+
+      char **matches = rl_completion_matches(text, completer_generator);
+
+      free(completer);
+
+      return matches;
+    }
+  }
+
+  free(current_line);
+
+  return file_matches;
 }
 
 int main(int argc, char *argv[]) {
@@ -309,9 +392,6 @@ int main(int argc, char *argv[]) {
   char *line;
 
   rl_attempted_completion_function = cmd_name_completion;
-
-  char *complete_history[COMPLETE_HISTORY_CAPACITY] = {NULL};
-  size_t complete_history_size = 0;
 
   while ((line = readline("$ ")) != NULL) {
     char input[INPUT_CAPACITY] = {0};
@@ -440,37 +520,25 @@ int main(int argc, char *argv[]) {
             char *lookup_cmd = parts[2];
             size_t stderr_value_len = strlen(stderr_value);
             size_t stdout_value_len = strlen(stdout_value);
-            int is_cmd_found = 0;
+            char *completer = NULL;
 
-            for (size_t i = 0; i < complete_history_size; i++) {
-              if (complete_history[i] == NULL)
-                continue;
+            if (find_complete_history_completer(
+                    complete_cmd_state.complete_history,
+                    complete_cmd_state.complete_history_size, lookup_cmd,
+                    &completer)) {
+              snprintf(stdout_value + stdout_value_len,
+                       sizeof(stdout_value) - stdout_value_len,
+                       "complete -C '%s' %s", completer, lookup_cmd);
 
-              char *history_elem = strdup(complete_history[i]);
-
-              char *prev_cmd = strtok(history_elem, ":");
-              char *prev_path = strtok(NULL, ":");
-
-              if (strcmp(prev_cmd, lookup_cmd) == 0) {
-                is_cmd_found = 1;
-                snprintf(stdout_value + stdout_value_len,
-                         sizeof(stdout_value) - stdout_value_len,
-                         "complete -C '%s' %s", prev_path, lookup_cmd);
-              }
-
-              free(history_elem);
-
-              if (is_cmd_found)
-                break;
-            }
-
-            if (!is_cmd_found) {
+              free(completer);
+            } else {
               snprintf(stderr_value + stderr_value_len,
                        sizeof(stderr_value) - stderr_value_len,
                        "complete: %s: no completion specification", lookup_cmd);
             }
           } else if (parts_size > 3 && strcmp(flag, "-C") == 0) {
-            if (complete_history_size < COMPLETE_HISTORY_CAPACITY) {
+            if (complete_cmd_state.complete_history_size <
+                COMPLETE_HISTORY_CAPACITY) {
               char *new_cmd = parts[3];
               char *new_path = parts[2];
               char cmd_to_path[COMPLETE_HISTORY_ELEM_CAPACITY] = {0};
@@ -481,19 +549,23 @@ int main(int argc, char *argv[]) {
                          new_cmd, new_path);
                 int is_new_cmd = 1;
 
-                for (size_t i = 0; i < complete_history_size; i++) {
+                for (size_t i = 0; i < complete_cmd_state.complete_history_size;
+                     i++) {
 
-                  if (complete_history[i] == NULL)
+                  if (complete_cmd_state.complete_history[i] == NULL)
+
                     continue;
 
-                  char *history_elem = strdup(complete_history[i]);
+                  char *history_elem =
+                      strdup(complete_cmd_state.complete_history[i]);
 
                   char *prev_cmd = strtok(history_elem, ":");
 
                   if (strcmp(prev_cmd, new_cmd) == 0) {
                     is_new_cmd = 0;
-                    free(complete_history[i]);
-                    complete_history[i] = strdup(cmd_to_path);
+                    free(complete_cmd_state.complete_history[i]);
+                    complete_cmd_state.complete_history[i] =
+                        strdup(cmd_to_path);
                   }
 
                   free(history_elem);
@@ -503,7 +575,10 @@ int main(int argc, char *argv[]) {
                 }
 
                 if (is_new_cmd) {
-                  complete_history[complete_history_size++] =
+
+                  complete_cmd_state.complete_history
+                      [complete_cmd_state.complete_history_size++] =
+
                       strdup(cmd_to_path);
                 }
               }
@@ -615,13 +690,14 @@ int main(int argc, char *argv[]) {
 
   free(line);
 
-  for (size_t i = 0; i < complete_history_size; i++) {
-    char *history_elem = complete_history[i];
+  for (size_t i = 0; i < complete_cmd_state.complete_history_size; i++) {
+    char *history_elem = complete_cmd_state.complete_history[i];
 
     if (history_elem == NULL)
       continue;
 
     free(history_elem);
   }
+
   return 0;
 }
