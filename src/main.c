@@ -254,7 +254,7 @@ int find_complete_history_completer(char **complete_history,
 
 char *cmd_name_generator(const char *text, int state) {
   static int list_index, len, is_in_cwd;
-  static struct dirent *entry;
+  struct dirent *entry;
   static char *path, *subpath;
   static const char *name;
   static DIR *dir = NULL;
@@ -305,7 +305,7 @@ char *cmd_name_generator(const char *text, int state) {
 
       entry = readdir(dir);
 
-      if (entry == NULL && subpath != NULL) {
+      if (entry == NULL) {
         subpath = strtok(NULL, PATH_SEP);
 
         if (subpath != NULL) {
