@@ -279,14 +279,23 @@ char *cmd_name_generator(const char *text, int state) {
     return result;
 
   if (!state) {
+    if (dir) {
+      closedir(dir);
+      dir = NULL;
+    }
+
+    if (path) {
+      free(path);
+      path = NULL;
+    }
     if (strncmp(text, "./", 2) == 0) {
       dir = opendir("./");
-      is_in_cwd = 0;
+      is_in_cwd = 1;
     } else {
       path = strdup(getenv("PATH"));
       subpath = strtok(path, PATH_SEP);
       dir = opendir(subpath);
-      is_in_cwd = 1;
+      is_in_cwd = 0;
     }
   }
 
@@ -296,12 +305,7 @@ char *cmd_name_generator(const char *text, int state) {
     char cmp_target[PATH_MAX] = {0};
 
     while (entry != NULL) {
-      snprintf(cmp_target, PATH_MAX, is_in_cwd ? "%s" : "./%s", entry->d_name);
-
-      if (strcmp(subpath, "/tmp/owl") == 0) {
-        printf("The current elem of the path %s is %s\n", subpath,
-               entry->d_name);
-      }
+      snprintf(cmp_target, PATH_MAX, !is_in_cwd ? "%s" : "./%s", entry->d_name);
 
       if (strncmp(cmp_target, text, len) == 0) {
         result = strdup(cmp_target);
@@ -310,15 +314,17 @@ char *cmd_name_generator(const char *text, int state) {
 
       entry = readdir(dir);
 
-      if (entry == NULL) {
+      if (entry == NULL && !is_in_cwd) {
         subpath = strtok(NULL, PATH_SEP);
 
-        if (subpath != NULL) {
+        while (subpath != NULL && entry == NULL) {
           closedir(dir);
           dir = opendir(subpath);
 
           if (dir != NULL) {
             entry = readdir(dir);
+          } else {
+            subpath = strtok(NULL, PATH_SEP);
           }
         }
       }
@@ -331,8 +337,6 @@ char *cmd_name_generator(const char *text, int state) {
 
     if (dir)
       closedir(dir);
-  } else {
-    printf("\nThe sdfsdfsdfsdfdsf current match inside:  %s\n", result);
   }
 
   return result;
@@ -356,13 +360,13 @@ char **cmd_name_completion(const char *text, int start, int end) {
   if (start == 0) {
     char **matches = rl_completion_matches(text, cmd_name_generator);
 
-    for (size_t i = 0; i < 10; i++) {
-      char *match = matches[i];
-      if (match == NULL) {
-        break;
-      }
-      printf("\nThe current match outside: %s\n", match);
-    }
+    /* for (size_t i = 0; i < 10; i++) { */
+    /*   char *match = matches[i]; */
+    /*   if (match == NULL) { */
+    /*     break; */
+    /*   } */
+    /*   printf("\nThe current match outside: %s\n", match); */
+    /* } */
 
     return matches;
   }
