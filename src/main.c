@@ -274,6 +274,7 @@ char *cmd_name_generator(const char *text, int state) {
       free(path);
       path = NULL;
     }
+
     if (strncmp(text, "./", 2) == 0) {
       dir = opendir("./");
       is_in_cwd = 1;
@@ -301,6 +302,27 @@ char *cmd_name_generator(const char *text, int state) {
     entry = readdir(dir);
 
     char cmp_target[PATH_MAX] = {0};
+
+    // FIX DRY
+
+    if (entry == NULL && !is_in_cwd) {
+      subpath = strtok(NULL, PATH_SEP);
+
+      while (subpath != NULL && entry == NULL) {
+        if (dir != NULL) {
+          closedir(dir);
+        }
+
+        dir = opendir(subpath);
+
+        if (dir != NULL) {
+          entry = readdir(dir);
+        } else {
+          subpath = strtok(NULL, PATH_SEP);
+        }
+      }
+    }
+    // FIX DRY
 
     while (entry != NULL) {
       snprintf(cmp_target, PATH_MAX, !is_in_cwd ? "%s" : "./%s", entry->d_name);
