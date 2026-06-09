@@ -349,13 +349,13 @@ char **cmd_name_completion(const char *text, int start, int end) {
   if (start == 0) {
     char **matches = rl_completion_matches(text, cmd_name_generator);
 
-    /* for (size_t i = 0; i < 10; i++) { */
-    /*   char *match = matches[i]; */
-    /*   if (match == NULL) { */
-    /*     break; */
-    /*   } */
-    /*   printf("\nThe current match: %s\n", match); */
-    /* } */
+    for (size_t i = 0; i < 10; i++) {
+      char *match = matches[i];
+      if (match == NULL) {
+        break;
+      }
+      printf("\nThe current match: %s\n", match);
+    }
 
     return matches;
   }
