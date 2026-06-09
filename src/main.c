@@ -354,7 +354,7 @@ char **cmd_name_completion(const char *text, int start, int end) {
       if (match == NULL) {
         break;
       }
-      printf("The current match: %s\n", match);
+      printf("\nThe current match: %s\n", match);
     }
 
     return matches;
