@@ -327,7 +327,7 @@ char *cmd_name_generator(const char *text, int state) {
     if (dir)
       closedir(dir);
   } else {
-    printf("\nThe current match inside: %s\n", result);
+    /* printf("\nThe current match inside: %s\n", result); */
   }
 
   return result;
@@ -351,13 +351,13 @@ char **cmd_name_completion(const char *text, int start, int end) {
   if (start == 0) {
     char **matches = rl_completion_matches(text, cmd_name_generator);
 
-    for (size_t i = 0; i < 10; i++) {
-      char *match = matches[i];
-      if (match == NULL) {
-        break;
-      }
-      printf("\nThe current match outside: %s\n", match);
-    }
+    /* for (size_t i = 0; i < 10; i++) { */
+    /*   char *match = matches[i]; */
+    /*   if (match == NULL) { */
+    /*     break; */
+    /*   } */
+    /*   printf("\nThe current match outside: %s\n", match); */
+    /* } */
 
     return matches;
   }
