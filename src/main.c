@@ -264,21 +264,7 @@ char *cmd_name_generator(const char *text, int state) {
   if (!state) {
     list_index = 0;
     len = strlen(text);
-  }
 
-  while ((name = cmd_names[list_index])) {
-    list_index++;
-
-    if (strncmp(name, text, len) == 0) {
-      result = strdup(name);
-      break;
-    }
-  }
-
-  if (result != NULL)
-    return result;
-
-  if (!state) {
     if (dir) {
       closedir(dir);
       dir = NULL;
@@ -298,6 +284,18 @@ char *cmd_name_generator(const char *text, int state) {
       is_in_cwd = 0;
     }
   }
+
+  while ((name = cmd_names[list_index])) {
+    list_index++;
+
+    if (strncmp(name, text, len) == 0) {
+      result = strdup(name);
+      break;
+    }
+  }
+
+  if (result != NULL)
+    return result;
 
   if (dir != NULL) {
     entry = readdir(dir);
@@ -335,11 +333,15 @@ char *cmd_name_generator(const char *text, int state) {
   }
 
   if (result == NULL) {
-    if (path)
+    if (path) {
       free(path);
+      path = NULL;
+    }
 
-    if (dir)
+    if (dir) {
       closedir(dir);
+      dir = NULL;
+    }
   }
 
   return result;
