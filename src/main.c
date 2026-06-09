@@ -318,7 +318,10 @@ char *cmd_name_generator(const char *text, int state) {
         subpath = strtok(NULL, PATH_SEP);
 
         while (subpath != NULL && entry == NULL) {
-          closedir(dir);
+          if (dir != NULL) {
+            closedir(dir);
+          }
+
           dir = opendir(subpath);
 
           if (dir != NULL) {
