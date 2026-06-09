@@ -327,7 +327,7 @@ char *cmd_name_generator(const char *text, int state) {
     if (dir)
       closedir(dir);
   } else {
-    printf("\nThe sdf current match inside:  %s\n", result);
+    printf("\nThe sdfsdf current match inside:  %s\n", result);
   }
 
   return result;
