@@ -326,6 +326,8 @@ char *cmd_name_generator(const char *text, int state) {
 
     if (dir)
       closedir(dir);
+  } else {
+    printf("\nThe current match inside: %s\n", result);
   }
 
   return result;
@@ -354,7 +356,7 @@ char **cmd_name_completion(const char *text, int start, int end) {
       if (match == NULL) {
         break;
       }
-      printf("\nThe current match: %s\n", match);
+      printf("\nThe current match outside: %s\n", match);
     }
 
     return matches;
