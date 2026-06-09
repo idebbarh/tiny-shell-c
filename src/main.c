@@ -347,7 +347,17 @@ char **cmd_name_completion(const char *text, int start, int end) {
   rl_attempted_completion_over = 1;
 
   if (start == 0) {
-    return rl_completion_matches(text, cmd_name_generator);
+    char **matches = rl_completion_matches(text, cmd_name_generator);
+
+    for (size_t i = 0; i < 10; i++) {
+      char *match = matches[i];
+      if (match == NULL) {
+        break;
+      }
+      printf("The current match: %s\n", match);
+    }
+
+    return matches;
   }
 
   char **file_matches =
