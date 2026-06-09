@@ -254,7 +254,7 @@ int find_complete_history_completer(char **complete_history,
 
 char *cmd_name_generator(const char *text, int state) {
   static int list_index, len, is_in_cwd;
-  struct dirent *entry;
+  static struct dirent *entry;
   static char *path, *subpath;
   static const char *name;
   static DIR *dir = NULL;
@@ -297,6 +297,11 @@ char *cmd_name_generator(const char *text, int state) {
 
     while (entry != NULL) {
       snprintf(cmp_target, PATH_MAX, is_in_cwd ? "%s" : "./%s", entry->d_name);
+
+      if (strcmp(subpath, "/tmp/owl") == 0) {
+        printf("The current elem of the path %s is %s\n", subpath,
+               entry->d_name);
+      }
 
       if (strncmp(cmp_target, text, len) == 0) {
         result = strdup(cmp_target);
