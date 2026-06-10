@@ -444,6 +444,7 @@ char **cmd_name_completion(const char *text, int start, int end) {
 
       while (fgets(line, sizeof(line), completer_stdout) != NULL &&
              index < line_count) {
+        printf("line is %s\n", line);
         size_t len = strlen(line);
 
         if (len > 0 && line[len - 1] == '\n') {
