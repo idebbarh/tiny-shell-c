@@ -384,6 +384,7 @@ char *completer_generator(const char *text, int state) {
 
   do {
     if (strncmp(match, text, len) == 0) {
+      list_index++;
       return match;
     }
   } while ((match = curr_completer_value[++list_index]) != NULL);
