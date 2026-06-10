@@ -390,14 +390,28 @@ char **cmd_name_completion(const char *text, int start, int end) {
   }
 
   char *current_line = strdup(rl_line_buffer);
-  char *first_cmd = strtok(current_line, " ");
+  char *first_arg = strtok(current_line, " ");
+  char *second_arg = NULL;
+  char *third_arg = NULL;
   char *completer = NULL;
+  char completer_with_args[INPUT_CAPACITY];
+
+  if (first_arg != NULL) {
+    second_arg = strtok(NULL, " ");
+  }
+
+  if (second_arg != NULL) {
+    third_arg = strtok(NULL, " ");
+  }
 
   if (find_complete_history_completer(complete_cmd_state.complete_history,
                                       complete_cmd_state.complete_history_size,
-                                      first_cmd, &completer)) {
+                                      first_arg, &completer)) {
 
-    FILE *completer_stdout = popen(completer, "r");
+    snprintf(completer_with_args, INPUT_CAPACITY, "%s %s %s", completer, text,
+             third_arg == NULL ? "" : second_arg);
+
+    FILE *completer_stdout = popen(completer_with_args, "r");
     char line[256];
 
     if (completer_stdout != NULL) {
