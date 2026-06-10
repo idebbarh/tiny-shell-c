@@ -408,7 +408,10 @@ char **cmd_name_completion(const char *text, int start, int end) {
                                       complete_cmd_state.complete_history_size,
                                       first_arg, &completer)) {
 
-    snprintf(completer_with_args, INPUT_CAPACITY, "%s %s %s %s", completer,
+    snprintf(completer_with_args, INPUT_CAPACITY,
+             "COMP_LINE=%s COMP_POINT=%ld %s %s %s %s", rl_line_buffer,
+             strlen(rl_line_buffer) + 1, completer,
+
              first_arg == NULL ? "" : first_arg, text,
              third_arg == NULL ? "" : second_arg);
 
