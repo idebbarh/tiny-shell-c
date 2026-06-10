@@ -415,6 +415,8 @@ char **cmd_name_completion(const char *text, int start, int end) {
              first_arg == NULL ? "" : first_arg, text,
              third_arg == NULL ? "" : second_arg);
 
+    printf("the full cmd is: %s", completer_with_args);
+
     FILE *completer_stdout = popen(completer_with_args, "r");
     char line[256];
 
