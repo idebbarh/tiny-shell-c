@@ -386,19 +386,8 @@ char **cmd_name_completion(const char *text, int start, int end) {
   if (start == 0) {
     char **matches = rl_completion_matches(text, cmd_name_generator);
 
-    /* for (size_t i = 0; i < 10; i++) { */
-    /*   char *match = matches[i]; */
-    /*   if (match == NULL) { */
-    /*     break; */
-    /*   } */
-    /*   printf("\nThe current match outside: %s\n", match); */
-    /* } */
-
     return matches;
   }
-
-  char **file_matches =
-      rl_completion_matches(text, rl_filename_completion_function);
 
   char *current_line = strdup(rl_line_buffer);
   char *first_cmd = strtok(current_line, " ");
@@ -422,23 +411,20 @@ char **cmd_name_completion(const char *text, int start, int end) {
 
       char **matches = rl_completion_matches(text, completer_generator);
 
-      for (size_t i = 0; i < 10; i++) {
-        char *match = matches[i];
-        if (match == NULL) {
-          break;
-        }
-        printf("\nThe sldkjfsldfsdf current match outside: %s\n", match);
-      }
-
       free(completer);
 
       return matches;
     }
+  } else {
+    char **file_matches =
+        rl_completion_matches(text, rl_filename_completion_function);
+
+    return file_matches;
   }
 
   free(current_line);
 
-  return file_matches;
+  return NULL;
 }
 
 int main(int argc, char *argv[]) {
