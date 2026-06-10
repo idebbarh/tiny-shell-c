@@ -427,7 +427,7 @@ char **cmd_name_completion(const char *text, int start, int end) {
         if (match == NULL) {
           break;
         }
-        printf("\nThe sldkjfsldf current match outside: %s\n", match);
+        printf("\nThe sldkjfsldfsdf current match outside: %s\n", match);
       }
 
       free(completer);
