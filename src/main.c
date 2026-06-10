@@ -442,11 +442,8 @@ char **cmd_name_completion(const char *text, int start, int end) {
 
       curr_completer_value = calloc(line_count + 1, sizeof(char *));
 
-      printf("with args: %s\n", completer_with_args);
-
       while (fgets(line, sizeof(line), completer_stdout) != NULL &&
              index < line_count) {
-        printf("line is %s\n", line);
         size_t len = strlen(line);
 
         if (len > 0 && line[len - 1] == '\n') {
@@ -458,22 +455,15 @@ char **cmd_name_completion(const char *text, int start, int end) {
 
       pclose(completer_stdout);
 
+      char **matches = rl_completion_matches(text, completer_generator);
+
       for (size_t i = 0; i < line_count; i++) {
         char *line = curr_completer_value[i];
         if (line != NULL) {
-          printf("the current match is: %s\n", line);
+          free(line);
+          curr_completer_value[i] = NULL;
         }
       }
-
-      char **matches = rl_completion_matches(text, completer_generator);
-
-      /* for (size_t i = 0; i < line_count; i++) { */
-      /*   char *line = curr_completer_value[i]; */
-      /*   if (line != NULL) { */
-      /*     free(line); */
-      /*     curr_completer_value[i] = NULL; */
-      /*   } */
-      /* } */
 
       free(completer);
 
