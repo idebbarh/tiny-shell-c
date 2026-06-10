@@ -31,7 +31,7 @@ typedef struct {
 } CompleteCMDState;
 
 static CompleteCMDState complete_cmd_state = {0};
-static char *curr_completer_value[1] = {NULL};
+static char **curr_completer_value;
 
 static const char *cmd_names[] = {"exit", "echo",     "type", "pwd",
                                   "cd",   "complete", NULL};
@@ -370,12 +370,23 @@ char *cmd_name_generator(const char *text, int state) {
 
 char *completer_generator(const char *text, int state) {
   static int list_index, len;
+  char *match;
 
   if (!state) {
     list_index = 0;
     len = strlen(text);
-    return curr_completer_value[0];
   }
+
+  match = curr_completer_value[list_index];
+
+  if (match == NULL)
+    return NULL;
+
+  do {
+    if (strncmp(match, text, len)) {
+      return match;
+    }
+  } while ((match = curr_completer_value[++list_index]) != NULL);
 
   return NULL;
 }
@@ -415,18 +426,40 @@ char **cmd_name_completion(const char *text, int start, int end) {
              third_arg == NULL ? "" : second_arg);
 
     FILE *completer_stdout = popen(completer_with_args, "r");
-    char line[256];
 
     if (completer_stdout != NULL) {
-      while (fgets(line, sizeof(line), completer_stdout) != NULL) {
-        line[strlen(line) - 1] = '\0';
-        curr_completer_value[0] = strdup(line);
-        break;
+      char line[OUTPUT_CAPACITY];
+      size_t index = 0;
+      size_t line_count = 0;
+      int ch;
+
+      while ((ch = fgetc(completer_stdout)) != EOF) {
+        if (ch == '\0')
+          line_count++;
+      }
+      rewind(completer_stdout);
+
+      curr_completer_value = calloc(line_count + 1, sizeof(char *));
+
+      while (fgets(line, sizeof(line), completer_stdout) != NULL &&
+             index < line_count) {
+        size_t len = strlen(line);
+        if (len > 0 && line[len - 1] == '\n') {
+          line[len - 1] = '\0';
+        }
+
+        curr_completer_value[index++] = strdup(line);
       }
 
       pclose(completer_stdout);
 
       char **matches = rl_completion_matches(text, completer_generator);
+
+      for (size_t i = 0; i < line_count; i++) {
+        char *line = curr_completer_value[i];
+        if (line != NULL)
+          free(line);
+      }
 
       free(completer);
 
