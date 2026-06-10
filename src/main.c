@@ -442,6 +442,8 @@ char **cmd_name_completion(const char *text, int start, int end) {
 
       curr_completer_value = calloc(line_count + 1, sizeof(char *));
 
+      printf("with args: %s\n", completer_with_args);
+
       while (fgets(line, sizeof(line), completer_stdout) != NULL &&
              index < line_count) {
         printf("line is %s\n", line);
