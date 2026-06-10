@@ -304,7 +304,6 @@ char *cmd_name_generator(const char *text, int state) {
     char cmp_target[PATH_MAX] = {0};
 
     // FIX DRY
-
     if (entry == NULL && !is_in_cwd) {
       subpath = strtok(NULL, PATH_SEP);
 
@@ -422,6 +421,14 @@ char **cmd_name_completion(const char *text, int start, int end) {
       pclose(completer_stdout);
 
       char **matches = rl_completion_matches(text, completer_generator);
+
+      for (size_t i = 0; i < 10; i++) {
+        char *match = matches[i];
+        if (match == NULL) {
+          break;
+        }
+        printf("\nThe current match outside: %s\n", match);
+      }
 
       free(completer);
 
