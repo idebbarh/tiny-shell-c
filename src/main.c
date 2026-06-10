@@ -383,7 +383,7 @@ char *completer_generator(const char *text, int state) {
     return NULL;
 
   do {
-    if (strncmp(match, text, len)) {
+    if (strncmp(match, text, len) == 0) {
       return match;
     }
   } while ((match = curr_completer_value[++list_index]) != NULL);
@@ -444,6 +444,7 @@ char **cmd_name_completion(const char *text, int start, int end) {
       while (fgets(line, sizeof(line), completer_stdout) != NULL &&
              index < line_count) {
         size_t len = strlen(line);
+
         if (len > 0 && line[len - 1] == '\n') {
           line[len - 1] = '\0';
         }
@@ -457,8 +458,10 @@ char **cmd_name_completion(const char *text, int start, int end) {
 
       for (size_t i = 0; i < line_count; i++) {
         char *line = curr_completer_value[i];
-        if (line != NULL)
+        if (line != NULL) {
           free(line);
+          curr_completer_value[i] = NULL;
+        }
       }
 
       free(completer);
