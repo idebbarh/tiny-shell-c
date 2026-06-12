@@ -473,7 +473,7 @@ char **cmd_name_completion(const char *text, int start, int end) {
       }
     }
 
-    free(completer);
+    /* free(completer); */
 
     return matches;
   } else {
@@ -483,7 +483,7 @@ char **cmd_name_completion(const char *text, int start, int end) {
     return file_matches;
   }
 
-  /* free(current_line); */
+  free(current_line);
 
   return NULL;
 }
