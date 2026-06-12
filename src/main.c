@@ -452,6 +452,8 @@ char **cmd_name_completion(const char *text, int start, int end) {
           line[len - 1] = '\0';
         }
 
+        printf("the line is: %s\n", line);
+
         curr_completer_value[index++] = strdup(line);
       }
 
