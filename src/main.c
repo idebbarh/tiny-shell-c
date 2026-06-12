@@ -421,7 +421,7 @@ char **cmd_name_completion(const char *text, int start, int end) {
                                       first_arg, &completer)) {
     snprintf(
         completer_with_args, INPUT_CAPACITY,
-        "bash -c 'COMP_LINE=\"%s\" COMP_POINT=%ld bash -x %s %s %s %s' 2>&1",
+        "bash -c 'COMP_LINE=\"%s\" COMP_POINT=%ld strace %s %s %s %s' 2>&1",
         rl_line_buffer, strlen(rl_line_buffer), completer,
         first_arg == NULL ? "" : first_arg, text,
         third_arg == NULL ? "" : second_arg);
