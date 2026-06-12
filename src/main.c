@@ -444,6 +444,8 @@ char **cmd_name_completion(const char *text, int start, int end) {
 
       curr_completer_value = calloc(line_count + 1, sizeof(char *));
 
+      printf("lines count is: %ld", line_count);
+
       while (fgets(line, sizeof(line), completer_stdout) != NULL &&
              index < line_count) {
         size_t len = strlen(line);
@@ -451,8 +453,6 @@ char **cmd_name_completion(const char *text, int start, int end) {
         if (len > 0 && line[len - 1] == '\n') {
           line[len - 1] = '\0';
         }
-
-        printf("the line is: %s\n", line);
 
         curr_completer_value[index++] = strdup(line);
       }
