@@ -489,18 +489,18 @@ char **cmd_name_completion(const char *text, int start, int end) {
 int main(int argc, char *argv[]) {
   // Flush after every printf
   setbuf(stdout, NULL);
-  char *line;
+  char *readline_val;
 
   rl_attempted_completion_function = cmd_name_completion;
 
-  while ((line = readline("$ ")) != NULL) {
+  while ((readline_val = readline("$ ")) != NULL) {
     char input[INPUT_CAPACITY] = {0};
     char stdout_value[OUTPUT_CAPACITY] = {0};
     char stderr_value[OUTPUT_CAPACITY] = {0};
     char *parts[INPUT_CAPACITY] = {0};
 
     // get user input
-    snprintf(input, INPUT_CAPACITY, "%s", line);
+    snprintf(input, INPUT_CAPACITY, "%s", readline_val);
 
     // check if not empty
     if (strlen(input) > 0) {
@@ -788,7 +788,7 @@ int main(int argc, char *argv[]) {
     }
   }
 
-  free(line);
+  free(readline_val);
 
   for (size_t i = 0; i < complete_cmd_state.complete_history_size; i++) {
     char *history_elem = complete_cmd_state.complete_history[i];
