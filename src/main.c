@@ -396,9 +396,7 @@ char **cmd_name_completion(const char *text, int start, int end) {
   rl_attempted_completion_over = 1;
 
   if (start == 0) {
-    char **matches = rl_completion_matches(text, cmd_name_generator);
-
-    return matches;
+    return rl_completion_matches(text, cmd_name_generator);
   }
 
   char *current_line = strdup(rl_line_buffer);
@@ -406,99 +404,88 @@ char **cmd_name_completion(const char *text, int start, int end) {
   char *second_arg = NULL;
   char *third_arg = NULL;
   char *completer = NULL;
+  char **matches = NULL;
   char completer_with_args[INPUT_CAPACITY];
 
-  if (first_arg != NULL) {
+  if (first_arg != NULL)
     second_arg = strtok(NULL, " ");
-  }
-
-  if (second_arg != NULL) {
+  if (second_arg != NULL)
     third_arg = strtok(NULL, " ");
-  }
 
   if (find_complete_history_completer(complete_cmd_state.complete_history,
                                       complete_cmd_state.complete_history_size,
                                       first_arg, &completer)) {
 
+    // FIXED: Correctly mapped arguments passed to the script without trailing
+    // duplicates
     snprintf(completer_with_args, INPUT_CAPACITY,
              "bash -c 'COMP_LINE=\"%s\" COMP_POINT=%ld %s %s %s %s' 2>&1",
-             rl_line_buffer, strlen(rl_line_buffer), completer,
-             first_arg == NULL ? "" : first_arg, text,
-             third_arg == NULL ? "" : second_arg);
+             rl_line_buffer, (long)strlen(rl_line_buffer), completer,
+             first_arg == NULL ? "" : first_arg,
+             second_arg == NULL ? "" : second_arg,
+             third_arg == NULL ? "" : third_arg);
 
     FILE *completer_stdout = popen(completer_with_args, "r");
 
     size_t line_count = 0;
     char line[OUTPUT_CAPACITY];
-    size_t index = 0;
-    int ch;
+
+    // Allocate space for an initial chunk of pointers
+    size_t capacity = 16;
+    curr_completer_value = calloc(capacity, sizeof(char *));
 
     if (completer_stdout != NULL) {
-      printf("DEBUG: Executing command:\n");
-      printf("[%s]\n", completer_with_args);
+      printf("DEBUG: Executing command:\n[%s]\n", completer_with_args);
 
-      while ((ch = fgetc(completer_stdout)) != EOF) {
-        if (ch == '\n')
-          line_count++;
-      }
-
-      int status = pclose(completer_stdout);
-      if (status == -1) {
-        perror("pclose failed");
-      } else {
-        // Use macros from <sys/wait.h> to interpret the status
-        if (WIFEXITED(status)) {
-          printf("Child exited with code: %d\n", WEXITSTATUS(status));
-        } else if (WIFSIGNALED(status)) {
-          printf("Child was killed by signal: %d\n", WTERMSIG(status));
+      // Read everything in ONE pass instead of two popen loops
+      while (fgets(line, sizeof(line), completer_stdout) != NULL) {
+        // Dynamic resizing if the output exceeds initial bounds
+        if (line_count >= capacity - 1) {
+          capacity *= 2;
+          curr_completer_value =
+              realloc(curr_completer_value, capacity * sizeof(char *));
         }
-      }
-    }
 
-    completer_stdout = popen(completer_with_args, "r");
-
-    if (completer_stdout != NULL && line_count > 0) {
-      curr_completer_value = calloc(line_count + 1, sizeof(char *));
-
-      while (fgets(line, sizeof(line), completer_stdout) != NULL &&
-             index < line_count) {
         size_t len = strlen(line);
-
         if (len > 0 && line[len - 1] == '\n') {
           line[len - 1] = '\0';
         }
 
-        curr_completer_value[index++] = strdup(line);
+        // This will now capture and store any text, including error strings!
+        curr_completer_value[line_count++] = strdup(line);
       }
+      curr_completer_value[line_count] = NULL; // Null terminate list
 
-      pclose(completer_stdout);
-    } else {
-      curr_completer_value = calloc(1, sizeof(char *));
+      int status = pclose(completer_stdout);
+      if (status != -1 && WIFEXITED(status)) {
+        printf("Child exited with code: %d\n", WEXITSTATUS(status));
+        // If there was an error, our curr_completer_value array holds the
+        // literal reason
+        if (WEXITSTATUS(status) != 0 && line_count > 0) {
+          printf("Error message received: %s\n", curr_completer_value[0]);
+        }
+      }
     }
 
-    char **matches = rl_completion_matches(text, completer_generator);
+    matches = rl_completion_matches(text, completer_generator);
 
+    // Clean up allocated completion lines
     for (size_t i = 0; i < line_count; i++) {
-      char *line = curr_completer_value[i];
-      if (line != NULL) {
-        free(line);
-        curr_completer_value[i] = NULL;
+      if (curr_completer_value[i] != NULL) {
+        free(curr_completer_value[i]);
       }
     }
-
+    free(curr_completer_value);
+    curr_completer_value = NULL;
     free(completer);
 
-    return matches;
   } else {
-    char **file_matches =
-        rl_completion_matches(text, rl_filename_completion_function);
-
-    return file_matches;
+    matches = rl_completion_matches(text, rl_filename_completion_function);
   }
 
+  // FIXED: Freed safely at the bottom because we cache results in `matches`
   free(current_line);
-
-  return NULL;
+  return matches;
 }
 
 int main(int argc, char *argv[]) {
