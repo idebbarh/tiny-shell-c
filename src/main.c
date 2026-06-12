@@ -434,12 +434,14 @@ char **cmd_name_completion(const char *text, int start, int end) {
     int ch;
 
     if (completer_stdout != NULL) {
+
+      printf("DEBUG: Executing command: [%s]\n", completer_with_args);
+
       while ((ch = fgetc(completer_stdout)) != EOF) {
         if (ch == '\n')
           line_count++;
       }
 
-      printf("line count is: %ld\n", line_count);
       int status = pclose(completer_stdout);
       if (status == -1) {
         perror("pclose failed");
