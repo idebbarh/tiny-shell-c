@@ -426,7 +426,7 @@ char **cmd_name_completion(const char *text, int start, int end) {
              first_arg == NULL ? "" : first_arg, text,
              third_arg == NULL ? "" : second_arg);
 
-    printf("completer_with_args: %s\n", completer_with_args);
+    /* printf("completer_with_args: %s\n", completer_with_args); */
 
     FILE *completer_stdout = popen("echo 'Hello World'", "r");
 
