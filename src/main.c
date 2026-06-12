@@ -419,12 +419,12 @@ char **cmd_name_completion(const char *text, int start, int end) {
   if (find_complete_history_completer(complete_cmd_state.complete_history,
                                       complete_cmd_state.complete_history_size,
                                       first_arg, &completer)) {
-
-    snprintf(completer_with_args, INPUT_CAPACITY,
-             "bash -c \"COMP_LINE='%s' COMP_POINT=%ld %s %s %s %s\"",
-             rl_line_buffer, strlen(rl_line_buffer), completer,
-             first_arg == NULL ? "" : first_arg, text,
-             third_arg == NULL ? "" : second_arg);
+    snprintf(
+        completer_with_args, INPUT_CAPACITY,
+        "bash -c 'COMP_LINE=\"%s\" COMP_POINT=%ld bash -x %s %s %s %s' 2>&1",
+        rl_line_buffer, strlen(rl_line_buffer), completer,
+        first_arg == NULL ? "" : first_arg, text,
+        third_arg == NULL ? "" : second_arg);
 
     FILE *completer_stdout = popen(completer_with_args, "r");
 
