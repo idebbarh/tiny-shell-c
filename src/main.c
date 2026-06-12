@@ -421,12 +421,14 @@ char **cmd_name_completion(const char *text, int start, int end) {
                                       first_arg, &completer)) {
 
     snprintf(completer_with_args, INPUT_CAPACITY,
-             "COMP_LINE='%s' COMP_POINT=%ld %s %s %s %s 2>&1", rl_line_buffer,
+             "COMP_LINE='%s' COMP_POINT=%ld %s %s %s %s", rl_line_buffer,
              strlen(rl_line_buffer), completer,
              first_arg == NULL ? "" : first_arg, text,
              third_arg == NULL ? "" : second_arg);
 
-    FILE *completer_stdout = popen(completer_with_args, "r");
+    printf("completer_with_args: %s\n", completer_with_args);
+
+    FILE *completer_stdout = popen("echo 'Hello World'", "r");
 
     if (completer_stdout != NULL) {
       char line[OUTPUT_CAPACITY];
@@ -434,7 +436,6 @@ char **cmd_name_completion(const char *text, int start, int end) {
       int ch;
 
       while ((ch = fgetc(completer_stdout)) != EOF) {
-        printf("char: %c\n", ch);
         if (ch == '\0')
           line_count++;
       }
