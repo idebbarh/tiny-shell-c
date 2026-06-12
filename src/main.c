@@ -435,9 +435,11 @@ char **cmd_name_completion(const char *text, int start, int end) {
 
     if (completer_stdout != NULL) {
       while ((ch = fgetc(completer_stdout)) != EOF) {
+        printf("The char: %c\n", ch);
         if (ch == '\n')
           line_count++;
       }
+      printf("The lines count: %ld\n", line_count);
 
       pclose(completer_stdout);
     }
