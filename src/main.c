@@ -224,11 +224,10 @@ int lookup_program(char *cmd, char full_path[PATH_MAX]) {
   return is_found;
 }
 
-int find_complete_history_completer(char **complete_history,
-                                    size_t complete_history_size,
-                                    char *lookup_cmd, char **completer) {
-
-  int is_cmd_found = 0;
+int find_complete_history_elem_index(char **complete_history,
+                                     size_t complete_history_size,
+                                     char *lookup_cmd) {
+  int elem_index = -1;
 
   for (size_t i = 0; i < complete_history_size; i++) {
     if (complete_history[i] == NULL)
@@ -237,19 +236,64 @@ int find_complete_history_completer(char **complete_history,
     char *history_elem = strdup(complete_history[i]);
 
     char *prev_cmd = strtok(history_elem, ":");
-    char *prev_path = strtok(NULL, ":");
 
-    if (strcmp(prev_cmd, lookup_cmd) == 0) {
-      *completer = strdup(prev_path);
-    }
+    if (strcmp(prev_cmd, lookup_cmd) == 0)
+      elem_index = i;
 
     free(history_elem);
 
-    if (*completer)
-      return 1;
+    if (elem_index > 0)
+      break;
+  }
+
+  return elem_index;
+}
+
+int find_complete_history_completer(char **complete_history,
+                                    size_t complete_history_size,
+                                    char *lookup_cmd, char **completer) {
+
+  int index = find_complete_history_elem_index(
+      complete_history, complete_history_size, lookup_cmd);
+
+  if (index < 0)
+    return 0;
+
+  char *history_elem = strdup(complete_history[index]);
+
+  char *prev_cmd = strtok(history_elem, ":");
+  char *prev_path = strtok(NULL, ":");
+
+  if (strcmp(prev_cmd, lookup_cmd) == 0) {
+    *completer = strdup(prev_path);
+    free(history_elem);
+
+    return 1;
   }
 
   return 0;
+}
+
+void remove_complete_history_elem(char **complete_history,
+                                  size_t *complete_history_size_addr,
+                                  char *lookup_cmd) {
+
+  int index = find_complete_history_elem_index(
+      complete_history, *complete_history_size_addr, lookup_cmd);
+  int complete_history_size_value = *complete_history_size_addr;
+
+  if (index >= 0 && index < complete_history_size_value) {
+    if (complete_history[index] != NULL) {
+      free(complete_history[index]);
+
+      while (index < complete_history_size_value - 1) {
+        complete_history[index] = complete_history[index + 1];
+        index++;
+      }
+
+      (*complete_history_size_addr) -= 1;
+    }
+  }
 }
 
 char *cmd_name_generator(const char *text, int state) {
@@ -639,6 +683,10 @@ int main(int argc, char *argv[]) {
                        sizeof(stderr_value) - stderr_value_len,
                        "complete: %s: no completion specification", lookup_cmd);
             }
+          } else if (strcmp(flag, "-r") == 0) {
+            remove_complete_history_elem(
+                complete_cmd_state.complete_history,
+                &complete_cmd_state.complete_history_size, parts[2]);
           } else if (parts_size > 3 && strcmp(flag, "-C") == 0) {
             if (complete_cmd_state.complete_history_size <
                 COMPLETE_HISTORY_CAPACITY) {
