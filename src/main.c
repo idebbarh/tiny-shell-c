@@ -436,6 +436,8 @@ char **cmd_name_completion(const char *text, int start, int end) {
       int ch;
 
       while ((ch = fgetc(completer_stdout)) != EOF) {
+        printf("The current char is: %c\n", ch);
+
         if (ch == '\0')
           line_count++;
       }
