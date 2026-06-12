@@ -438,11 +438,7 @@ char **cmd_name_completion(const char *text, int start, int end) {
       size_t line_count = 0;
       int ch;
 
-      int fsv = fseek(completer_stdout, 0, SEEK_END);
-      if (fsv != 0) {
-        perror("fseek failed");
-      }
-      rewind(completer_stdout);
+      printf("First value of fgetc: %c\n", fgetc(completer_stdout));
 
       while ((ch = fgetc(completer_stdout)) != EOF) {
         if (ch == '\0')
