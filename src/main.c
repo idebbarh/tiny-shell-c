@@ -611,7 +611,7 @@ int main(int argc, char *argv[]) {
           // check if the cmd is builtin.
           if (strcmp(cmd, "echo") == 0 || strcmp(cmd, "exit") == 0 ||
               strcmp(cmd, "type") == 0 || strcmp(cmd, "pwd") == 0 ||
-              strcmp(cmd, "complete") == 0) {
+              strcmp(cmd, "complete") == 0 || strcmp(cmd, "jobs") == 0) {
 
             snprintf(stdout_value + stdout_value_len,
                      sizeof(stdout_value) - stdout_value_len,
@@ -736,6 +736,7 @@ int main(int argc, char *argv[]) {
             }
           }
         }
+      } else if (strcmp(parts[0], "jobs") == 0) {
       } else {
         char full_path[PATH_MAX] = {0};
 
