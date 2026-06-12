@@ -438,8 +438,6 @@ char **cmd_name_completion(const char *text, int start, int end) {
       size_t line_count = 0;
       int ch;
 
-      printf("First value of fgetc: %c\n", fgetc(completer_stdout));
-
       while ((ch = fgetc(completer_stdout)) != EOF) {
         if (ch == '\0')
           line_count++;
@@ -450,7 +448,6 @@ char **cmd_name_completion(const char *text, int start, int end) {
       curr_completer_value = calloc(line_count + 1, sizeof(char *));
 
       fgets(line, sizeof(line), completer_stdout);
-      printf("The motherfucking line is: %s\n", line);
 
       while (fgets(line, sizeof(line), completer_stdout) != NULL &&
              index < line_count) {
@@ -463,7 +460,18 @@ char **cmd_name_completion(const char *text, int start, int end) {
         curr_completer_value[index++] = strdup(line);
       }
 
-      pclose(completer_stdout);
+      int close_status = pclose(completer_stdout);
+
+      if (close_status == -1) {
+        perror("Failed to close stream");
+      }
+
+      if (WIFEXITED(close_status)) {
+        int exit_status = WEXITSTATUS(close_status);
+        if (exit_status != 0) {
+          printf("Process exited with error code: %d\n", exit_status);
+        }
+      }
 
       char **matches = rl_completion_matches(text, completer_generator);
 
@@ -697,8 +705,8 @@ int main(int argc, char *argv[]) {
           int stdout_pipe[2];
           int stderr_pipe[2];
           // make the pipe before the fork so the child inherit it.
-          // the pipe works this way, anything get written to the fds[1] you can
-          // read it from fds[0]
+          // the pipe works this way, anything get written to the fds[1] you
+          // can read it from fds[0]
           pipe(stdout_pipe);
           pipe(stderr_pipe);
 
