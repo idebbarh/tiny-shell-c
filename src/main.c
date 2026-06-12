@@ -449,6 +449,7 @@ char **cmd_name_completion(const char *text, int start, int end) {
              index < line_count) {
         size_t len = strlen(line);
 
+        printf("Hello line finaly: %s\n", line);
         if (len > 0 && line[len - 1] == '\n') {
           line[len - 1] = '\0';
         }
