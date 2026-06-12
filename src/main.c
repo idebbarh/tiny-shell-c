@@ -426,27 +426,27 @@ char **cmd_name_completion(const char *text, int start, int end) {
              first_arg == NULL ? "" : first_arg, text,
              third_arg == NULL ? "" : second_arg);
 
-    /* printf("completer_with_args: %s\n", completer_with_args); */
+    FILE *completer_stdout = popen(completer_with_args, "r");
+    printf("DEBUG: Executing command: [%s]\n", completer_with_args);
 
-    FILE *completer_stdout = popen("echo 'Hello World'", "r");
+    size_t line_count = 0;
+    char line[OUTPUT_CAPACITY];
+    size_t index = 0;
+    int ch;
 
     if (completer_stdout != NULL) {
-      char line[OUTPUT_CAPACITY];
-      size_t index = 0;
-      size_t line_count = 0;
-      int ch;
-
       while ((ch = fgetc(completer_stdout)) != EOF) {
         if (ch == '\n')
           line_count++;
       }
 
-      rewind(completer_stdout);
+      pclose(completer_stdout);
+    }
 
+    completer_stdout = popen(completer_with_args, "r");
+
+    if (completer_stdout != NULL && line_count > 0) {
       curr_completer_value = calloc(line_count + 1, sizeof(char *));
-
-      fgets(line, sizeof(line), completer_stdout);
-      printf("Hello line finally: %s\n", line);
 
       while (fgets(line, sizeof(line), completer_stdout) != NULL &&
              index < line_count) {
@@ -460,21 +460,23 @@ char **cmd_name_completion(const char *text, int start, int end) {
       }
 
       pclose(completer_stdout);
-
-      char **matches = rl_completion_matches(text, completer_generator);
-
-      for (size_t i = 0; i < line_count; i++) {
-        char *line = curr_completer_value[i];
-        if (line != NULL) {
-          free(line);
-          curr_completer_value[i] = NULL;
-        }
-      }
-
-      free(completer);
-
-      return matches;
+    } else {
+      curr_completer_value = calloc(1, sizeof(char *));
     }
+
+    char **matches = rl_completion_matches(text, completer_generator);
+
+    for (size_t i = 0; i < line_count; i++) {
+      char *line = curr_completer_value[i];
+      if (line != NULL) {
+        free(line);
+        curr_completer_value[i] = NULL;
+      }
+    }
+
+    free(completer);
+
+    return matches;
   } else {
     char **file_matches =
         rl_completion_matches(text, rl_filename_completion_function);
