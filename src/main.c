@@ -437,19 +437,13 @@ char **cmd_name_completion(const char *text, int start, int end) {
       int ch;
 
       while ((ch = fgetc(completer_stdout)) != EOF) {
-
-        if (ch == '\0') {
+        if (ch == '\n')
           line_count++;
-        } else {
-          printf("The current char is: %c\n", ch);
-        }
       }
 
       rewind(completer_stdout);
 
       curr_completer_value = calloc(line_count + 1, sizeof(char *));
-
-      printf("lines count is: %ld", line_count);
 
       while (fgets(line, sizeof(line), completer_stdout) != NULL &&
              index < line_count) {
