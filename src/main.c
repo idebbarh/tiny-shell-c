@@ -435,13 +435,10 @@ char **cmd_name_completion(const char *text, int start, int end) {
 
     if (completer_stdout != NULL) {
       while ((ch = fgetc(completer_stdout)) != EOF) {
-        printf("Char: %c\n", ch);
-
         if (ch == '\n')
           line_count++;
       }
 
-      printf("The lines count is: %ld\n", line_count);
       pclose(completer_stdout);
     }
 
@@ -453,8 +450,6 @@ char **cmd_name_completion(const char *text, int start, int end) {
       while (fgets(line, sizeof(line), completer_stdout) != NULL &&
              index < line_count) {
         size_t len = strlen(line);
-
-        printf("The current line is: %s\n", line);
 
         if (len > 0 && line[len - 1] == '\n') {
           line[len - 1] = '\0';
@@ -488,7 +483,7 @@ char **cmd_name_completion(const char *text, int start, int end) {
     return file_matches;
   }
 
-  free(current_line);
+  /* free(current_line); */
 
   return NULL;
 }
