@@ -421,26 +421,23 @@ char **cmd_name_completion(const char *text, int start, int end) {
                                       first_arg, &completer)) {
 
     snprintf(completer_with_args, INPUT_CAPACITY,
-             "COMP_LINE='%s' COMP_POINT=%ld %s %s %s %s", rl_line_buffer,
+             "COMP_LINE='%s' COMP_POINT=%ld %s %s %s %s 2>&1", rl_line_buffer,
              strlen(rl_line_buffer), completer,
              first_arg == NULL ? "" : first_arg, text,
              third_arg == NULL ? "" : second_arg);
-
-    system(completer_with_args);
 
     FILE *completer_stdout = popen(completer_with_args, "r");
 
     if (completer_stdout != NULL) {
       char line[OUTPUT_CAPACITY];
-      size_t index = 0;
-      size_t line_count = 0;
+      size_t index = 0, line_count = 0;
       int ch;
 
       while ((ch = fgetc(completer_stdout)) != EOF) {
-
         if (ch == '\0')
           line_count++;
       }
+
       rewind(completer_stdout);
 
       curr_completer_value = calloc(line_count + 1, sizeof(char *));
