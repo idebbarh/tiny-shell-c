@@ -438,12 +438,14 @@ char **cmd_name_completion(const char *text, int start, int end) {
       size_t line_count = 0;
       int ch;
 
+      fseek(completer_stdout, 0, SEEK_END);
+      printf("\nThe size of the file is: %ld\n", ftell(completer_stdout));
+      rewind(completer_stdout);
+
       while ((ch = fgetc(completer_stdout)) != EOF) {
         if (ch == '\0')
           line_count++;
       }
-
-      printf("\nThe completer lines: %ld\n", line_count);
 
       rewind(completer_stdout);
 
