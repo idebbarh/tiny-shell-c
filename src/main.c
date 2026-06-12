@@ -420,17 +420,14 @@ char **cmd_name_completion(const char *text, int start, int end) {
                                       complete_cmd_state.complete_history_size,
                                       first_arg, &completer)) {
 
-    printf("\nThe completer found: %s\n", completer);
-
     snprintf(completer_with_args, INPUT_CAPACITY,
              "COMP_LINE='%s' COMP_POINT=%ld %s %s %s %s", rl_line_buffer,
              strlen(rl_line_buffer), completer,
              first_arg == NULL ? "" : first_arg, text,
              third_arg == NULL ? "" : second_arg);
 
-    printf("\nThe completer with args found: %s\n", completer_with_args);
-
     FILE *completer_stdout = popen(completer_with_args, "r");
+    system(completer_with_args);
 
     if (completer_stdout != NULL) {
       char line[OUTPUT_CAPACITY];
