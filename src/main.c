@@ -424,7 +424,7 @@ char **cmd_name_completion(const char *text, int start, int end) {
              "bash -c \"COMP_LINE='%s' COMP_POINT=%ld %s %s %s %s\"",
              rl_line_buffer, strlen(rl_line_buffer), completer,
              first_arg == NULL ? "" : first_arg, text,
-             third_arg == NULL ? first_arg : second_arg);
+             third_arg == NULL ? "" : second_arg);
 
     FILE *completer_stdout = popen(completer_with_args, "r");
 
@@ -465,14 +465,12 @@ char **cmd_name_completion(const char *text, int start, int end) {
 
     char **matches = rl_completion_matches(text, completer_generator);
 
-    for (size_t i = 0; i < line_count + 1; i++) {
-      char *line = curr_completer_value[i];
-      if (line != NULL) {
-        free(line);
-        curr_completer_value[i] = NULL;
-      }
+    for (size_t i = 0; curr_completer_value[i] != NULL; i++) {
+      free(curr_completer_value[i]);
+      curr_completer_value[i] = NULL;
     }
 
+    free(curr_completer_value);
     free(completer);
 
     return matches;
