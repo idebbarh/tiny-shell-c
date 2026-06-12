@@ -443,6 +443,7 @@ char **cmd_name_completion(const char *text, int start, int end) {
 
       rewind(completer_stdout);
 
+      printf("The line count: %ld\n", line_count);
       curr_completer_value = calloc(line_count + 1, sizeof(char *));
 
       while (fgets(line, sizeof(line), completer_stdout) != NULL &&
