@@ -432,14 +432,17 @@ char **cmd_name_completion(const char *text, int start, int end) {
 
     if (completer_stdout != NULL) {
       char line[OUTPUT_CAPACITY];
-      size_t index = 0, line_count = 0;
+      size_t index = 0;
+      size_t line_count = 0;
       int ch;
 
       while ((ch = fgetc(completer_stdout)) != EOF) {
-        printf("The current char is: %c\n", ch);
 
-        if (ch == '\0')
+        if (ch == '\0') {
           line_count++;
+        } else {
+          printf("The current char is: %c\n", ch);
+        }
       }
 
       rewind(completer_stdout);
