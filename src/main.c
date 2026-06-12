@@ -421,7 +421,7 @@ char **cmd_name_completion(const char *text, int start, int end) {
                                       first_arg, &completer)) {
 
     snprintf(completer_with_args, INPUT_CAPACITY,
-             "bash -c \"COMP_LINE=\\\"%s\\\" COMP_POINT=%ld %s %s %s %s\" 2>&1",
+             "bash -c \"COMP_LINE='%s' COMP_POINT=%ld %s %s %s %s\"",
              rl_line_buffer, strlen(rl_line_buffer), completer,
              first_arg == NULL ? "" : first_arg, text,
              third_arg == NULL ? "" : second_arg);
@@ -435,14 +435,22 @@ char **cmd_name_completion(const char *text, int start, int end) {
 
     if (completer_stdout != NULL) {
       while ((ch = fgetc(completer_stdout)) != EOF) {
-        printf("The current char is: %c\n", ch);
-
         if (ch == '\n')
           line_count++;
       }
 
-      printf("line count is: %ld,", line_count);
-      pclose(completer_stdout);
+      printf("line count is: %ld\n", line_count);
+      int status = pclose(completer_stdout);
+      if (status == -1) {
+        perror("pclose failed");
+      } else {
+        // Use macros from <sys/wait.h> to interpret the status
+        if (WIFEXITED(status)) {
+          printf("Child exited with code: %d\n", WEXITSTATUS(status));
+        } else if (WIFSIGNALED(status)) {
+          printf("Child was killed by signal: %d\n", WTERMSIG(status));
+        }
+      }
     }
 
     completer_stdout = popen(completer_with_args, "r");
