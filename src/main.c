@@ -449,6 +449,9 @@ char **cmd_name_completion(const char *text, int start, int end) {
 
       curr_completer_value = calloc(line_count + 1, sizeof(char *));
 
+      fgets(line, sizeof(line), completer_stdout);
+      printf("The motherfucking line is: %s\n", line);
+
       while (fgets(line, sizeof(line), completer_stdout) != NULL &&
              index < line_count) {
         size_t len = strlen(line);
