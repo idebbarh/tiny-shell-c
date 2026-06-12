@@ -385,7 +385,7 @@ char *completer_generator(const char *text, int state) {
   do {
     if (strncmp(match, text, len) == 0) {
       list_index++;
-      return match;
+      return strdup(match);
     }
   } while ((match = curr_completer_value[++list_index]) != NULL);
 
@@ -472,11 +472,14 @@ char **cmd_name_completion(const char *text, int start, int end) {
 
     free(curr_completer_value);
     free(completer);
+    free(current_line);
 
     return matches;
   } else {
     char **file_matches =
         rl_completion_matches(text, rl_filename_completion_function);
+
+    free(current_line);
 
     return file_matches;
   }
