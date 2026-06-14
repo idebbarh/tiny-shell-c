@@ -2,6 +2,7 @@
 #include <dirent.h>
 #include <errno.h>
 #include <linux/limits.h>
+#include <pthread.h>
 #include <readline/readline.h>
 #include <stddef.h>
 #include <stdio.h>
@@ -24,6 +25,17 @@
 #define OUTPUT_CAPACITY 1000
 #define COMPLETE_HISTORY_CAPACITY 1000
 #define COMPLETE_HISTORY_ELEM_CAPACITY 100
+
+typedef struct {
+  char *stdout_value;
+  char *stderr_value;
+  FILE *f_out;
+  FILE *f_err;
+  int is_background_job;
+  char redirect_type;
+  char *redirect_file_path;
+  int is_append_redirect;
+} SubProcessOutputStreamArgs;
 
 typedef struct {
   char *complete_history[COMPLETE_HISTORY_CAPACITY];
@@ -533,6 +545,72 @@ char **cmd_name_completion(const char *text, int start, int end) {
   return NULL;
 }
 
+void handle_terminal_output(char stdout_value[OUTPUT_CAPACITY],
+                            char stderr_value[OUTPUT_CAPACITY],
+                            char redirect_type,
+                            char redirect_file_path[PATH_MAX],
+                            int is_append_redirect) {
+
+  char *terminal_output = strlen(stderr_value) ? stderr_value : stdout_value;
+
+  if (redirect_type == '1') {
+    if (write_to_file(stdout_value, redirect_file_path,
+                      is_append_redirect ? "a+" : "w+")) {
+      exit(1);
+    }
+
+    terminal_output = stderr_value;
+
+  } else if (redirect_type == '2') {
+    if (write_to_file(stderr_value, redirect_file_path,
+                      is_append_redirect ? "a+" : "w+")) {
+      exit(1);
+    }
+
+    terminal_output = stdout_value;
+  }
+
+  if (strlen(terminal_output)) {
+    printf("%s", terminal_output);
+
+    if (terminal_output[strlen(terminal_output) - 1] != '\n') {
+      printf("\n");
+    }
+  }
+}
+
+void *capture_subprocess_output_stream(void *args) {
+  SubProcessOutputStreamArgs *params = (SubProcessOutputStreamArgs *)args;
+  size_t stdout_value_len = 0;
+  size_t stderr_value_len = 0;
+  char line[256];
+
+  // read it
+  while (fgets(line, sizeof(line), params->f_out) != NULL) {
+    snprintf(params->stdout_value + stdout_value_len,
+             OUTPUT_CAPACITY - stdout_value_len, "%s", line);
+    stdout_value_len = strlen(params->stdout_value);
+  }
+
+  while (fgets(line, sizeof(line), params->f_err) != NULL) {
+    snprintf(params->stderr_value + stderr_value_len,
+             OUTPUT_CAPACITY - stderr_value_len, "%s", line);
+    stderr_value_len = strlen(params->stderr_value);
+  }
+
+  if (params->is_background_job) {
+    handle_terminal_output(params->stdout_value, params->stderr_value,
+                           params->redirect_type, params->redirect_file_path,
+                           params->is_append_redirect);
+    free(params->stdout_value);
+    free(params->stderr_value);
+  }
+
+  free(params->redirect_file_path);
+
+  return NULL;
+}
+
 int main(int argc, char *argv[]) {
   // Flush after every printf
   setbuf(stdout, NULL);
@@ -556,6 +634,7 @@ int main(int argc, char *argv[]) {
       char redirect_file_path[PATH_MAX];
 
       // check if there a redirect >
+      int is_background_job = 0;
       int is_append_redirect = 0;
       char redirect_type = check_for_redirect(
           parts, parts_size, redirect_file_path, &is_append_redirect);
@@ -577,6 +656,13 @@ int main(int argc, char *argv[]) {
             parts[i] = NULL;
           }
         }
+      }
+
+      size_t last_part_index = parts_size - 1;
+      if (strcmp(parts[last_part_index], "&") == 0) {
+        is_background_job = 1;
+        parts[last_part_index] = NULL;
+        parts_size--;
       }
 
       // if the input is exit exit the loop
@@ -744,8 +830,8 @@ int main(int argc, char *argv[]) {
           int stdout_pipe[2];
           int stderr_pipe[2];
           // make the pipe before the fork so the child inherit it.
-          // the pipe works this way, anything get written to the fds[1] you can
-          // read it from fds[0]
+          // the pipe works this way, anything get written to the fds[1] you
+          // can read it from fds[0]
           pipe(stdout_pipe);
           pipe(stderr_pipe);
 
@@ -779,24 +865,41 @@ int main(int argc, char *argv[]) {
             // get the data that the fds[0] points
             FILE *f_out = fdopen(stdout_pipe[0], "r");
             FILE *f_err = fdopen(stderr_pipe[0], "r");
-            char line[256];
-            size_t stdout_value_len = strlen(stdout_value);
-            size_t stderr_value_len = strlen(stderr_value);
+            SubProcessOutputStreamArgs *args =
+                malloc(sizeof(SubProcessOutputStreamArgs));
 
-            // read it
-            while (fgets(line, sizeof(line), f_out) != NULL) {
+            args->f_out = f_out;
+            args->f_err = f_err;
+            args->is_background_job = is_background_job;
+            args->redirect_type = redirect_type;
+            args->redirect_file_path = strdup(redirect_file_path);
+            args->is_append_redirect = is_append_redirect;
+
+            if (is_background_job) {
+              size_t stdout_value_len = strlen(stdout_value);
+              pthread_t new_thread;
               snprintf(stdout_value + stdout_value_len,
-                       sizeof(stdout_value) - stdout_value_len, "%s", line);
-              stdout_value_len = strlen(stdout_value);
+                       sizeof(stdout_value) - stdout_value_len, "[%d] %d\n", 1,
+                       pid);
+              handle_terminal_output(stdout_value, stderr_value, redirect_type,
+                                     redirect_file_path, is_append_redirect);
+              snprintf(stdout_value, sizeof(stdout_value), "");
+              // handle it in another thread;
+              args->stdout_value = calloc(OUTPUT_CAPACITY, sizeof(char));
+              args->stderr_value = calloc(OUTPUT_CAPACITY, sizeof(char));
+              pthread_create(&new_thread, NULL,
+                             capture_subprocess_output_stream, args);
+              pthread_detach(new_thread);
+              free_input_parts(parts, parts_size);
+              // detach it.
+              continue;
+            } else {
+              wait(NULL);
+              // handle it normaly
+              args->stdout_value = stdout_value;
+              args->stderr_value = stderr_value;
+              capture_subprocess_output_stream(args);
             }
-
-            while (fgets(line, sizeof(line), f_err) != NULL) {
-              snprintf(stderr_value + stderr_value_len,
-                       sizeof(stderr_value) - stderr_value_len, "%s", line);
-              stderr_value_len = strlen(stderr_value);
-            }
-
-            wait(NULL);
           }
         } else {
           size_t stderr_value_len = strlen(stderr_value);
@@ -806,36 +909,8 @@ int main(int argc, char *argv[]) {
         }
       }
 
-      char *terminal_output =
-          strlen(stderr_value) ? stderr_value : stdout_value;
-
-      if (redirect_type == '1') {
-        if (write_to_file(stdout_value, redirect_file_path,
-                          is_append_redirect ? "a+" : "w+")) {
-          free_input_parts(parts, parts_size);
-          return 1;
-        }
-
-        terminal_output = stderr_value;
-
-      } else if (redirect_type == '2') {
-        if (write_to_file(stderr_value, redirect_file_path,
-                          is_append_redirect ? "a+" : "w+")) {
-          free_input_parts(parts, parts_size);
-          return 1;
-        }
-
-        terminal_output = stdout_value;
-      }
-
-      if (strlen(terminal_output)) {
-        printf("%s", terminal_output);
-
-        if (terminal_output[strlen(terminal_output) - 1] != '\n') {
-          printf("\n");
-        }
-      }
-
+      handle_terminal_output(stdout_value, stderr_value, redirect_type,
+                             redirect_file_path, is_append_redirect);
       free_input_parts(parts, parts_size);
     }
   }
