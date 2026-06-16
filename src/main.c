@@ -631,7 +631,7 @@ void sync_jobs_order() {
   int second_recent_index = -1;
 
   for (size_t i = 0; i < jobs_state.jobs_size; i++) {
-    if (jobs_state.jobs[i].is_running) {
+    if (jobs_state.jobs[i].is_running || jobs_state.jobs[i].is_done) {
       if (recent_index >= 0) {
         second_recent_index = recent_index;
       }
@@ -719,7 +719,8 @@ void print_running_jobs(char stdout_value[OUTPUT_CAPACITY]) {
         jobs_state.jobs[i].is_done = 0;
       }
 
-      char *padding = generate_padding(JOB_STATUS_PADDED_NUM - strlen(status));
+      char *padding =
+          generate_padding(JOB_STATUS_PADDED_NUM - strlen(status) - 3);
 
       snprintf(stdout_value + stdout_value_len,
                OUTPUT_CAPACITY - stdout_value_len, "%s%s\n", padding, command);
