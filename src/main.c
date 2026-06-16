@@ -716,7 +716,6 @@ void print_running_jobs(char stdout_value[OUTPUT_CAPACITY]) {
 
       if (is_done) {
         command[strlen(command) - 1] = '\0';
-        jobs_state.jobs[i].is_done = 0;
       }
 
       char *padding =
@@ -725,6 +724,11 @@ void print_running_jobs(char stdout_value[OUTPUT_CAPACITY]) {
       snprintf(stdout_value + stdout_value_len,
                OUTPUT_CAPACITY - stdout_value_len, "%s%s\n", padding, command);
       stdout_value_len = strlen(stdout_value);
+
+      if (is_done) {
+        jobs_state.jobs[i].is_done = 0;
+        sync_jobs_order();
+      }
 
       free(command);
       free(padding);
