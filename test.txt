@@ -1,1 +1,1 @@
-/home/ismail/personal/codecrafters/codecrafters-shell-c
+-ne sdf 

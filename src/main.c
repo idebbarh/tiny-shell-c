@@ -22,9 +22,10 @@
 #endif
 
 #define INPUT_CAPACITY 1000
-#define OUTPUT_CAPACITY 1000
+#define OUTPUT_CAPACITY 10000
 #define COMPLETE_HISTORY_CAPACITY 1000
 #define COMPLETE_HISTORY_ELEM_CAPACITY 100
+#define JOBS_CAPACITY 1000
 
 typedef struct {
   char *stdout_value;
@@ -35,7 +36,22 @@ typedef struct {
   char redirect_type;
   char *redirect_file_path;
   int is_append_redirect;
+  int job_num;
 } SubProcessOutputStreamArgs;
+
+typedef struct {
+  int num;
+  int process_id;
+  char *command;
+  int is_running;
+  int is_recent;
+} Job;
+
+typedef struct {
+  Job jobs[JOBS_CAPACITY];
+  size_t jobs_size;
+  int next_job_num;
+} JobsState;
 
 typedef struct {
   char *complete_history[COMPLETE_HISTORY_CAPACITY];
@@ -44,6 +60,7 @@ typedef struct {
 
 static CompleteCMDState complete_cmd_state = {0};
 static char **curr_completer_value;
+static JobsState jobs_state = {0};
 
 static const char *cmd_names[] = {"exit", "echo",     "type", "pwd",
                                   "cd",   "complete", NULL};
@@ -579,6 +596,91 @@ void handle_terminal_output(char stdout_value[OUTPUT_CAPACITY],
   }
 }
 
+void add_job(int pid, char *job_cmd) {
+  if (jobs_state.jobs_size >= JOBS_CAPACITY)
+    return;
+
+  for (size_t i = 0; i < jobs_state.jobs_size; i++) {
+    if (jobs_state.jobs[i].is_recent) {
+      jobs_state.jobs[i].is_recent = 0;
+      break;
+    }
+  }
+
+  size_t index = jobs_state.jobs_size;
+
+  jobs_state.jobs[index].num = jobs_state.next_job_num;
+  jobs_state.jobs[index].process_id = pid;
+  jobs_state.jobs[index].command = strdup(job_cmd);
+  jobs_state.jobs[index].is_running = 1;
+  jobs_state.jobs[index].is_recent = 1;
+
+  jobs_state.jobs_size++;
+
+  int num_changed = 0;
+
+  for (size_t i = 0; i < jobs_state.jobs_size; i++) {
+    if (!jobs_state.jobs[i].is_running &&
+        (jobs_state.jobs[i].num <= jobs_state.next_job_num || !num_changed)) {
+      jobs_state.next_job_num = jobs_state.jobs[i].num;
+      num_changed = 1;
+    }
+  }
+
+  if (!num_changed) {
+    jobs_state.next_job_num = jobs_state.jobs_size + 1;
+  }
+}
+
+void remove_job(int job_num) {
+  if (jobs_state.jobs_size == 0)
+    return;
+
+  for (size_t i = 0; i < jobs_state.jobs_size; i++) {
+    if (jobs_state.jobs[i].num == job_num && jobs_state.jobs[i].is_running) {
+      jobs_state.jobs[i].is_running = 0;
+      jobs_state.next_job_num =
+          job_num < jobs_state.next_job_num ? job_num : jobs_state.next_job_num;
+
+      return;
+    }
+  }
+}
+
+void print_running_jobs(char stdout_value[OUTPUT_CAPACITY]) {
+
+  size_t stdout_value_len = strlen(stdout_value);
+  for (size_t i = 0; i < jobs_state.jobs_size; i++) {
+    if (jobs_state.jobs[i].is_running) {
+      int job_num = jobs_state.jobs[i].num;
+      int is_recent = jobs_state.jobs[i].is_recent;
+      int is_running = jobs_state.jobs[i].is_running;
+      char *command = jobs_state.jobs[i].command;
+
+      snprintf(stdout_value + stdout_value_len,
+               OUTPUT_CAPACITY - stdout_value_len, "[%d]", job_num);
+      stdout_value_len = strlen(stdout_value);
+
+      if (is_recent) {
+        snprintf(stdout_value + stdout_value_len,
+                 OUTPUT_CAPACITY - stdout_value_len, "+");
+        stdout_value_len = strlen(stdout_value);
+      }
+
+      if (is_running) {
+        snprintf(stdout_value + stdout_value_len,
+                 OUTPUT_CAPACITY - stdout_value_len, "  Running");
+        stdout_value_len = strlen(stdout_value);
+      }
+
+      snprintf(stdout_value + stdout_value_len,
+               OUTPUT_CAPACITY - stdout_value_len, "                 %s\n",
+               command);
+      stdout_value_len = strlen(stdout_value);
+    }
+  }
+}
+
 void *capture_subprocess_output_stream(void *args) {
   SubProcessOutputStreamArgs *params = (SubProcessOutputStreamArgs *)args;
   size_t stdout_value_len = 0;
@@ -602,11 +704,17 @@ void *capture_subprocess_output_stream(void *args) {
     handle_terminal_output(params->stdout_value, params->stderr_value,
                            params->redirect_type, params->redirect_file_path,
                            params->is_append_redirect);
+
     free(params->stdout_value);
     free(params->stderr_value);
+
+    if (params->job_num != -1) {
+      remove_job(params->job_num);
+    }
   }
 
   free(params->redirect_file_path);
+  free(args);
 
   return NULL;
 }
@@ -617,6 +725,7 @@ int main(int argc, char *argv[]) {
   char *readline_val;
 
   rl_attempted_completion_function = cmd_name_completion;
+  jobs_state.next_job_num = 1;
 
   while ((readline_val = readline("$ ")) != NULL) {
     char input[INPUT_CAPACITY] = {0};
@@ -823,6 +932,7 @@ int main(int argc, char *argv[]) {
           }
         }
       } else if (strcmp(parts[0], "jobs") == 0) {
+        print_running_jobs(stdout_value);
       } else {
         char full_path[PATH_MAX] = {0};
 
@@ -874,24 +984,28 @@ int main(int argc, char *argv[]) {
             args->redirect_type = redirect_type;
             args->redirect_file_path = strdup(redirect_file_path);
             args->is_append_redirect = is_append_redirect;
+            args->job_num = -1;
 
             if (is_background_job) {
               size_t stdout_value_len = strlen(stdout_value);
               pthread_t new_thread;
               snprintf(stdout_value + stdout_value_len,
-                       sizeof(stdout_value) - stdout_value_len, "[%d] %d\n", 1,
-                       pid);
+                       sizeof(stdout_value) - stdout_value_len, "[%d] %d\n",
+                       jobs_state.next_job_num, pid);
               handle_terminal_output(stdout_value, stderr_value, redirect_type,
                                      redirect_file_path, is_append_redirect);
               snprintf(stdout_value, sizeof(stdout_value), "");
               // handle it in another thread;
               args->stdout_value = calloc(OUTPUT_CAPACITY, sizeof(char));
               args->stderr_value = calloc(OUTPUT_CAPACITY, sizeof(char));
+              args->job_num = jobs_state.next_job_num;
+              // Add the job info to jobs list
+              add_job(pid, input);
               pthread_create(&new_thread, NULL,
                              capture_subprocess_output_stream, args);
+              // detach it.
               pthread_detach(new_thread);
               free_input_parts(parts, parts_size);
-              // detach it.
               continue;
             } else {
               wait(NULL);
@@ -924,6 +1038,14 @@ int main(int argc, char *argv[]) {
       continue;
 
     free(history_elem);
+  }
+
+  for (size_t i = 0; i < jobs_state.jobs_size; i++) {
+    Job job = jobs_state.jobs[i];
+
+    if (job.command != NULL) {
+      free(job.command);
+    }
   }
 
   return 0;
