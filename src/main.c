@@ -45,6 +45,7 @@ typedef struct {
   char *command;
   int is_running;
   int is_recent;
+  int is_second_recent;
 } Job;
 
 typedef struct {
@@ -596,16 +597,48 @@ void handle_terminal_output(char stdout_value[OUTPUT_CAPACITY],
   }
 }
 
+int get_next_job_num() {
+  int result = 0;
+  for (size_t i = 0; i < jobs_state.jobs_size; i++) {
+
+    if (jobs_state.jobs[i].is_running && jobs_state.jobs[i].num > result) {
+      result = jobs_state.jobs[i].num;
+    }
+  }
+
+  return result + 1;
+}
+
+void sync_jobs_order() {
+  for (size_t i = 0; i < jobs_state.jobs_size; i++) {
+    jobs_state.jobs[i].is_recent = 0;
+    jobs_state.jobs[i].is_second_recent = 0;
+  }
+
+  int recent_index = -1;
+  int second_recent_index = -1;
+
+  for (size_t i = 0; i < jobs_state.jobs_size; i++) {
+    if (jobs_state.jobs[i].is_running) {
+      if (recent_index >= 0) {
+        second_recent_index = recent_index;
+      }
+
+      recent_index = i;
+    }
+  }
+
+  if (recent_index >= 0) {
+    jobs_state.jobs[recent_index].is_recent = 1;
+  }
+
+  if (second_recent_index >= 0) {
+    jobs_state.jobs[second_recent_index].is_second_recent = 1;
+  }
+}
 void add_job(int pid, char *job_cmd) {
   if (jobs_state.jobs_size >= JOBS_CAPACITY)
     return;
-
-  for (size_t i = 0; i < jobs_state.jobs_size; i++) {
-    if (jobs_state.jobs[i].is_recent) {
-      jobs_state.jobs[i].is_recent = 0;
-      break;
-    }
-  }
 
   size_t index = jobs_state.jobs_size;
 
@@ -614,22 +647,12 @@ void add_job(int pid, char *job_cmd) {
   jobs_state.jobs[index].command = strdup(job_cmd);
   jobs_state.jobs[index].is_running = 1;
   jobs_state.jobs[index].is_recent = 1;
+  jobs_state.jobs[index].is_second_recent = 0;
 
   jobs_state.jobs_size++;
+  jobs_state.next_job_num = get_next_job_num();
 
-  int num_changed = 0;
-
-  for (size_t i = 0; i < jobs_state.jobs_size; i++) {
-    if (!jobs_state.jobs[i].is_running &&
-        (jobs_state.jobs[i].num <= jobs_state.next_job_num || !num_changed)) {
-      jobs_state.next_job_num = jobs_state.jobs[i].num;
-      num_changed = 1;
-    }
-  }
-
-  if (!num_changed) {
-    jobs_state.next_job_num = jobs_state.jobs_size + 1;
-  }
+  sync_jobs_order();
 }
 
 void remove_job(int job_num) {
@@ -639,21 +662,23 @@ void remove_job(int job_num) {
   for (size_t i = 0; i < jobs_state.jobs_size; i++) {
     if (jobs_state.jobs[i].num == job_num && jobs_state.jobs[i].is_running) {
       jobs_state.jobs[i].is_running = 0;
-      jobs_state.next_job_num =
-          job_num < jobs_state.next_job_num ? job_num : jobs_state.next_job_num;
+      jobs_state.next_job_num = get_next_job_num();
 
-      return;
+      break;
     }
   }
+
+  sync_jobs_order();
 }
 
 void print_running_jobs(char stdout_value[OUTPUT_CAPACITY]) {
-
   size_t stdout_value_len = strlen(stdout_value);
+
   for (size_t i = 0; i < jobs_state.jobs_size; i++) {
     if (jobs_state.jobs[i].is_running) {
       int job_num = jobs_state.jobs[i].num;
       int is_recent = jobs_state.jobs[i].is_recent;
+      int is_second_recent = jobs_state.jobs[i].is_second_recent;
       int is_running = jobs_state.jobs[i].is_running;
       char *command = jobs_state.jobs[i].command;
 
@@ -661,11 +686,12 @@ void print_running_jobs(char stdout_value[OUTPUT_CAPACITY]) {
                OUTPUT_CAPACITY - stdout_value_len, "[%d]", job_num);
       stdout_value_len = strlen(stdout_value);
 
-      if (is_recent) {
-        snprintf(stdout_value + stdout_value_len,
-                 OUTPUT_CAPACITY - stdout_value_len, "+");
-        stdout_value_len = strlen(stdout_value);
-      }
+      snprintf(stdout_value + stdout_value_len,
+               OUTPUT_CAPACITY - stdout_value_len,
+               is_recent          ? "+"
+               : is_second_recent ? "-"
+                                  : " ");
+      stdout_value_len = strlen(stdout_value);
 
       if (is_running) {
         snprintf(stdout_value + stdout_value_len,
