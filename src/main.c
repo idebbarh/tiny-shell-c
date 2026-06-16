@@ -21,6 +21,7 @@
 #define get_cwd getcwd
 #endif
 
+#define JOB_STATUS_PADDED_NUM 24
 #define INPUT_CAPACITY 1000
 #define OUTPUT_CAPACITY 10000
 #define COMPLETE_HISTORY_CAPACITY 1000
@@ -44,6 +45,7 @@ typedef struct {
   int process_id;
   char *command;
   int is_running;
+  int is_done;
   int is_recent;
   int is_second_recent;
 } Job;
@@ -65,6 +67,16 @@ static JobsState jobs_state = {0};
 
 static const char *cmd_names[] = {"exit", "echo",     "type", "pwd",
                                   "cd",   "complete", NULL};
+
+char *generate_padding(int length) {
+  char *result = calloc(length + 1, sizeof(char));
+
+  for (size_t i = 0; i < length; i++) {
+    snprintf(result + i, (length + 1) - i, " ");
+  }
+
+  return result;
+}
 
 int write_to_file(const char input[OUTPUT_CAPACITY], const char *file_path,
                   const char *mode) {
@@ -646,6 +658,7 @@ void add_job(int pid, char *job_cmd) {
   jobs_state.jobs[index].process_id = pid;
   jobs_state.jobs[index].command = strdup(job_cmd);
   jobs_state.jobs[index].is_running = 1;
+  jobs_state.jobs[index].is_done = 0;
   jobs_state.jobs[index].is_recent = 1;
   jobs_state.jobs[index].is_second_recent = 0;
 
@@ -655,19 +668,20 @@ void add_job(int pid, char *job_cmd) {
   sync_jobs_order();
 }
 
-void remove_job(int job_num) {
+void make_job_done(int job_num) {
   if (jobs_state.jobs_size == 0)
     return;
 
   for (size_t i = 0; i < jobs_state.jobs_size; i++) {
     if (jobs_state.jobs[i].num == job_num && jobs_state.jobs[i].is_running) {
       jobs_state.jobs[i].is_running = 0;
-      jobs_state.next_job_num = get_next_job_num();
+      jobs_state.jobs[i].is_done = 1;
 
       break;
     }
   }
 
+  jobs_state.next_job_num = get_next_job_num();
   sync_jobs_order();
 }
 
@@ -675,12 +689,13 @@ void print_running_jobs(char stdout_value[OUTPUT_CAPACITY]) {
   size_t stdout_value_len = strlen(stdout_value);
 
   for (size_t i = 0; i < jobs_state.jobs_size; i++) {
-    if (jobs_state.jobs[i].is_running) {
+    if (jobs_state.jobs[i].is_running || jobs_state.jobs[i].is_done) {
       int job_num = jobs_state.jobs[i].num;
       int is_recent = jobs_state.jobs[i].is_recent;
       int is_second_recent = jobs_state.jobs[i].is_second_recent;
       int is_running = jobs_state.jobs[i].is_running;
-      char *command = jobs_state.jobs[i].command;
+      int is_done = jobs_state.jobs[i].is_done;
+      char *command = strdup(jobs_state.jobs[i].command);
 
       snprintf(stdout_value + stdout_value_len,
                OUTPUT_CAPACITY - stdout_value_len, "[%d]", job_num);
@@ -693,16 +708,25 @@ void print_running_jobs(char stdout_value[OUTPUT_CAPACITY]) {
                                   : " ");
       stdout_value_len = strlen(stdout_value);
 
-      if (is_running) {
-        snprintf(stdout_value + stdout_value_len,
-                 OUTPUT_CAPACITY - stdout_value_len, "  Running");
-        stdout_value_len = strlen(stdout_value);
-      }
+      char *status = is_done ? "Done" : "Running";
 
       snprintf(stdout_value + stdout_value_len,
-               OUTPUT_CAPACITY - stdout_value_len, "                 %s\n",
-               command);
+               OUTPUT_CAPACITY - stdout_value_len, "  %s", status);
       stdout_value_len = strlen(stdout_value);
+
+      if (is_done) {
+        command[strlen(command) - 1] = '\0';
+        jobs_state.jobs[i].is_done = 0;
+      }
+
+      char *padding = generate_padding(JOB_STATUS_PADDED_NUM - strlen(status));
+
+      snprintf(stdout_value + stdout_value_len,
+               OUTPUT_CAPACITY - stdout_value_len, "%s%s\n", padding, command);
+      stdout_value_len = strlen(stdout_value);
+
+      free(command);
+      free(padding);
     }
   }
 }
@@ -735,7 +759,7 @@ void *capture_subprocess_output_stream(void *args) {
     free(params->stderr_value);
 
     if (params->job_num != -1) {
-      remove_job(params->job_num);
+      make_job_done(params->job_num);
     }
   }
 
