@@ -28,6 +28,10 @@
 #define COMPLETE_HISTORY_ELEM_CAPACITY 100
 #define JOBS_CAPACITY 1000
 
+#define JOB_PRINTING_TYPE_ALL "ALL"
+#define JOB_PRINTING_TYPE_RUNNING "RUNNING"
+#define JOB_PRINTING_TYPE_DONE "DONE"
+
 typedef struct {
   char *stdout_value;
   char *stderr_value;
@@ -686,16 +690,20 @@ void make_job_done(int job_num) {
   sync_jobs_order();
 }
 
-void print_running_jobs(char stdout_value[OUTPUT_CAPACITY]) {
+void print_jobs(char stdout_value[OUTPUT_CAPACITY], char *type) {
   size_t stdout_value_len = strlen(stdout_value);
 
   for (size_t i = 0; i < jobs_state.jobs_size; i++) {
-    if (jobs_state.jobs[i].is_running || jobs_state.jobs[i].is_done) {
+    int is_running = jobs_state.jobs[i].is_running;
+    int is_done = jobs_state.jobs[i].is_done;
+
+    if ((strcmp(type, JOB_PRINTING_TYPE_ALL) == 0 && (is_running || is_done)) ||
+        (strcmp(type, JOB_PRINTING_TYPE_RUNNING) == 0 && is_running) ||
+        (strcmp(type, JOB_PRINTING_TYPE_DONE) == 0 && is_done)) {
+
       int job_num = jobs_state.jobs[i].num;
       int is_recent = jobs_state.jobs[i].is_recent;
       int is_second_recent = jobs_state.jobs[i].is_second_recent;
-      int is_running = jobs_state.jobs[i].is_running;
-      int is_done = jobs_state.jobs[i].is_done;
       char *command = strdup(jobs_state.jobs[i].command);
 
       snprintf(stdout_value + stdout_value_len,
@@ -993,7 +1001,7 @@ int main(int argc, char *argv[]) {
           }
         }
       } else if (strcmp(parts[0], "jobs") == 0) {
-        print_running_jobs(stdout_value);
+        print_jobs(stdout_value, JOB_PRINTING_TYPE_ALL);
       } else {
         char full_path[PATH_MAX] = {0};
 
@@ -1055,6 +1063,7 @@ int main(int argc, char *argv[]) {
               snprintf(stdout_value + stdout_value_len,
                        sizeof(stdout_value) - stdout_value_len, "[%d] %d\n",
                        jobs_state.next_job_num, pid);
+              print_jobs(stdout_value, JOB_PRINTING_TYPE_DONE);
               handle_terminal_output(stdout_value, stderr_value, redirect_type,
                                      redirect_file_path, is_append_redirect);
               snprintf(stdout_value, sizeof(stdout_value), "");
@@ -1085,8 +1094,13 @@ int main(int argc, char *argv[]) {
         }
       }
 
+      if (strcmp(parts[0], "jobs") != 0) {
+        print_jobs(stdout_value, JOB_PRINTING_TYPE_DONE);
+      }
+
       handle_terminal_output(stdout_value, stderr_value, redirect_type,
                              redirect_file_path, is_append_redirect);
+
       free_input_parts(parts, parts_size);
     }
   }
