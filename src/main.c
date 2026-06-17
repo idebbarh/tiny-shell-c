@@ -122,6 +122,7 @@ char check_for_redirect(char *parts[INPUT_CAPACITY], const size_t ps,
 void free_input_parts(char *parts[INPUT_CAPACITY], const size_t parts_size) {
   for (size_t i = 0; i < parts_size; i++) {
     char *part = parts[i];
+
     if (part != NULL) {
       free(part);
     }
@@ -614,10 +615,10 @@ void handle_terminal_output(char stdout_value[OUTPUT_CAPACITY],
   }
 }
 
-int get_next_job_num() {
+int get_next_max_job_num() {
   int result = 0;
-  for (size_t i = 0; i < jobs_state.jobs_size; i++) {
 
+  for (size_t i = 0; i < jobs_state.jobs_size; i++) {
     if (jobs_state.jobs[i].is_running && jobs_state.jobs[i].num > result) {
       result = jobs_state.jobs[i].num;
     }
@@ -668,7 +669,7 @@ void add_job(int pid, char *job_cmd) {
   jobs_state.jobs[index].is_second_recent = 0;
 
   jobs_state.jobs_size++;
-  jobs_state.next_job_num = get_next_job_num();
+  jobs_state.next_job_num = get_next_max_job_num();
 
   sync_jobs_order();
 }
@@ -686,7 +687,6 @@ void make_job_done(int job_num) {
     }
   }
 
-  jobs_state.next_job_num = get_next_job_num();
   sync_jobs_order();
 }
 
@@ -737,6 +737,10 @@ void print_jobs(char stdout_value[OUTPUT_CAPACITY], char *type) {
       if (is_done) {
         jobs_state.jobs[i].is_done = 0;
         sync_jobs_order();
+
+        if (job_num < jobs_state.next_job_num) {
+          jobs_state.next_job_num = job_num;
+        }
       }
 
       free(command);
@@ -801,6 +805,7 @@ int main(int argc, char *argv[]) {
     char stdout_value[OUTPUT_CAPACITY] = {0};
     char stderr_value[OUTPUT_CAPACITY] = {0};
     char *parts[INPUT_CAPACITY] = {0};
+    int is_exit = 0;
 
     // get user input
     snprintf(input, INPUT_CAPACITY, "%s", readline_val);
@@ -845,8 +850,7 @@ int main(int argc, char *argv[]) {
 
       // if the input is exit exit the loop
       if (strcmp(input, "exit") == 0) {
-        free_input_parts(parts, parts_size);
-        break;
+        is_exit = 1;
         // check if the first part is echo cmd
       } else if (strcmp(parts[0], "echo") == 0) {
         size_t i = 1;
@@ -903,9 +907,6 @@ int main(int argc, char *argv[]) {
         if (get_cwd(cwd, sizeof(cwd)) != NULL) {
           snprintf(stdout_value + stdout_value_len,
                    sizeof(stdout_value) - stdout_value_len, "%s\n", cwd);
-        } else {
-          free_input_parts(parts, parts_size);
-          return 1;
         }
       } else if (strcmp(parts[0], "cd") == 0) {
         // set the path to the home if the user prvoide not second argument to
@@ -1100,9 +1101,11 @@ int main(int argc, char *argv[]) {
 
       handle_terminal_output(stdout_value, stderr_value, redirect_type,
                              redirect_file_path, is_append_redirect);
-
       free_input_parts(parts, parts_size);
     }
+
+    if (is_exit)
+      break;
   }
 
   free(readline_val);
