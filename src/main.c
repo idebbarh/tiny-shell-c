@@ -38,6 +38,7 @@ typedef struct {
   char *redirect_file_path;
   int is_append_redirect;
   int job_num;
+  int pid;
 } SubProcessOutputStreamArgs;
 
 typedef struct {
@@ -755,6 +756,11 @@ void *capture_subprocess_output_stream(void *args) {
     stderr_value_len = strlen(params->stderr_value);
   }
 
+  fclose(params->f_out);
+  fclose(params->f_err);
+
+  waitpid(params->pid, NULL, 0);
+
   if (params->is_background_job) {
     handle_terminal_output(params->stdout_value, params->stderr_value,
                            params->redirect_type, params->redirect_file_path,
@@ -1030,6 +1036,7 @@ int main(int argc, char *argv[]) {
             // get the data that the fds[0] points
             FILE *f_out = fdopen(stdout_pipe[0], "r");
             FILE *f_err = fdopen(stderr_pipe[0], "r");
+
             SubProcessOutputStreamArgs *args =
                 malloc(sizeof(SubProcessOutputStreamArgs));
 
@@ -1040,6 +1047,7 @@ int main(int argc, char *argv[]) {
             args->redirect_file_path = strdup(redirect_file_path);
             args->is_append_redirect = is_append_redirect;
             args->job_num = -1;
+            args->pid = pid;
 
             if (is_background_job) {
               size_t stdout_value_len = strlen(stdout_value);
@@ -1063,7 +1071,6 @@ int main(int argc, char *argv[]) {
               free_input_parts(parts, parts_size);
               continue;
             } else {
-              wait(NULL);
               // handle it normaly
               args->stdout_value = stdout_value;
               args->stderr_value = stderr_value;
