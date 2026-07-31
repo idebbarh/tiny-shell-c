@@ -977,11 +977,9 @@ void execute_program(ProcessArgs *args) {
   if (strcmp(args->input, "exit") == 0) {
     handle_exit_command();
   } else if (strcmp(args->parts[0], "echo") == 0) {
-    /* handle_echo_command(args->stdout_value, args->stderr_value, args->parts,
-     */
-    /*                     args->parts_size, args->redirect_type, */
-    /*                     args->redirect_file_path, args->is_append_redirect);
-     */
+    handle_echo_command(args->stdout_value, args->stderr_value, args->parts,
+                        args->parts_size, args->redirect_type,
+                        args->redirect_file_path, args->is_append_redirect);
   } else if (strcmp(args->parts[0], "type") == 0) {
     handle_type_command(args->stdout_value, args->stderr_value, args->parts,
                         args->parts_size, args->redirect_type,
@@ -1041,7 +1039,7 @@ void *new_process(void *args) {
     close(stderr_pipe[1]);
     // exucute the command
     execute_program(args);
-    /* _exit(0); */
+    _exit(0);
     // parent
   } else {
     // Add the job info to jobs list
