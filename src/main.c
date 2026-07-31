@@ -1039,7 +1039,7 @@ void *new_process(void *args) {
     close(stderr_pipe[1]);
     // exucute the command
     execute_program(args);
-    _exit(0);
+    /* _exit(0); */
     // parent
   } else {
     // Add the job info to jobs list
