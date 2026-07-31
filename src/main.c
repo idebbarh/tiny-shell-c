@@ -22,28 +22,29 @@
 #endif
 
 #define JOB_STATUS_PADDED_NUM 24
+#define JOBS_CAPACITY 1000
+
 #define INPUT_CAPACITY 1000
 #define OUTPUT_CAPACITY 10000
+
 #define COMPLETE_HISTORY_CAPACITY 1000
 #define COMPLETE_HISTORY_ELEM_CAPACITY 100
-#define JOBS_CAPACITY 1000
 
 #define JOB_PRINTING_TYPE_ALL "ALL"
 #define JOB_PRINTING_TYPE_RUNNING "RUNNING"
 #define JOB_PRINTING_TYPE_DONE "DONE"
 
 typedef struct {
+  char input[INPUT_CAPACITY];
+  char *parts[INPUT_CAPACITY];
   char *stdout_value;
   char *stderr_value;
-  FILE *f_out;
-  FILE *f_err;
-  int is_background_job;
+  char redirect_file_path[PATH_MAX];
   char redirect_type;
-  char *redirect_file_path;
   int is_append_redirect;
+  size_t parts_size;
   int job_num;
-  int pid;
-} SubProcessOutputStreamArgs;
+} ProcessArgs;
 
 typedef struct {
   int num;
@@ -223,7 +224,7 @@ size_t input_parser(const char input[INPUT_CAPACITY],
   return parts_c;
 }
 
-int lookup_program(char *cmd, char full_path[PATH_MAX]) {
+int find_program_path(char *cmd, char full_path[PATH_MAX]) {
   // get the PATH
   char *path_value = strdup(getenv("PATH"));
   char *subpath;
@@ -580,11 +581,10 @@ char **cmd_name_completion(const char *text, int start, int end) {
   return NULL;
 }
 
-void handle_terminal_output(char stdout_value[OUTPUT_CAPACITY],
-                            char stderr_value[OUTPUT_CAPACITY],
-                            char redirect_type,
-                            char redirect_file_path[PATH_MAX],
-                            int is_append_redirect) {
+void print_output_stream(char stdout_value[OUTPUT_CAPACITY],
+                         char stderr_value[OUTPUT_CAPACITY], char redirect_type,
+                         char redirect_file_path[PATH_MAX],
+                         int is_append_redirect) {
 
   char *terminal_output = strlen(stderr_value) ? stderr_value : stdout_value;
 
@@ -674,7 +674,7 @@ void add_job(int pid, char *job_cmd) {
 }
 
 void make_job_done(int job_num) {
-  if (jobs_state.jobs_size == 0)
+  if (jobs_state.jobs_size <= 0)
     return;
 
   for (size_t i = 0; i < jobs_state.jobs_size; i++) {
@@ -749,44 +749,354 @@ void print_jobs(char stdout_value[OUTPUT_CAPACITY], char *type) {
   }
 }
 
-void *capture_subprocess_output_stream(void *args) {
-  SubProcessOutputStreamArgs *params = (SubProcessOutputStreamArgs *)args;
-  size_t stdout_value_len = 0;
-  size_t stderr_value_len = 0;
-  char line[256];
+void handle_exit_command() {}
 
-  // read it
-  while (fgets(line, sizeof(line), params->f_out) != NULL) {
-    snprintf(params->stdout_value + stdout_value_len,
-             OUTPUT_CAPACITY - stdout_value_len, "%s", line);
-    stdout_value_len = strlen(params->stdout_value);
+void handle_echo_command(char *stdout_value, char *stderr_value,
+                         char *parts[INPUT_CAPACITY], size_t parts_size,
+                         char redirect_type, char redirect_file_path[PATH_MAX],
+                         int is_append_redirect) {
+
+  size_t i = 1;
+  size_t stdout_value_len = strlen(stdout_value);
+
+  // print all the sentences after the echo cmd
+  while (i < parts_size) {
+    snprintf(stdout_value + stdout_value_len,
+             OUTPUT_CAPACITY - stdout_value_len, "%s ", parts[i++]);
+
+    stdout_value_len = strlen(stdout_value);
   }
 
-  while (fgets(line, sizeof(line), params->f_err) != NULL) {
-    snprintf(params->stderr_value + stderr_value_len,
-             OUTPUT_CAPACITY - stderr_value_len, "%s", line);
-    stderr_value_len = strlen(params->stderr_value);
-  }
+  snprintf(stdout_value + stdout_value_len, OUTPUT_CAPACITY - stdout_value_len,
+           "\n");
 
-  fclose(params->f_out);
-  fclose(params->f_err);
+  print_jobs(stdout_value, JOB_PRINTING_TYPE_DONE);
+  print_output_stream(stdout_value, stderr_value, redirect_type,
+                      redirect_file_path, is_append_redirect);
+}
 
-  waitpid(params->pid, NULL, 0);
+void handle_type_command(char *stdout_value, char *stderr_value,
+                         char *parts[INPUT_CAPACITY], size_t parts_size,
+                         char redirect_type, char redirect_file_path[PATH_MAX],
+                         int is_append_redirect) {
 
-  if (params->is_background_job) {
-    handle_terminal_output(params->stdout_value, params->stderr_value,
-                           params->redirect_type, params->redirect_file_path,
-                           params->is_append_redirect);
+  size_t i = 1;
 
-    free(params->stdout_value);
-    free(params->stderr_value);
+  // loop over the cmds after it.
+  while (i < parts_size) {
+    char *cmd = parts[i++];
+    size_t stdout_value_len = strlen(stdout_value);
 
-    if (params->job_num != -1) {
-      make_job_done(params->job_num);
+    // check if the cmd is builtin.
+    if (strcmp(cmd, "echo") == 0 || strcmp(cmd, "exit") == 0 ||
+        strcmp(cmd, "type") == 0 || strcmp(cmd, "pwd") == 0 ||
+        strcmp(cmd, "complete") == 0 || strcmp(cmd, "jobs") == 0) {
+
+      snprintf(stdout_value + stdout_value_len,
+               OUTPUT_CAPACITY - stdout_value_len, "%s is a shell builtin\n",
+               cmd);
+
+      // chearch for the cmd in the PATH.
+    } else {
+      char full_path[PATH_MAX];
+
+      if (find_program_path(cmd, full_path)) {
+        snprintf(stdout_value + stdout_value_len,
+                 OUTPUT_CAPACITY - stdout_value_len, "%s is %s\n", cmd,
+                 full_path);
+      } else {
+        snprintf(stdout_value + stdout_value_len,
+                 OUTPUT_CAPACITY - stdout_value_len, "%s: not found\n", cmd);
+      }
     }
   }
 
-  free(params->redirect_file_path);
+  print_jobs(stdout_value, JOB_PRINTING_TYPE_DONE);
+  print_output_stream(stdout_value, stderr_value, redirect_type,
+                      redirect_file_path, is_append_redirect);
+}
+
+void handle_pwd_command(char *stdout_value, char *stderr_value,
+                        char *parts[INPUT_CAPACITY], size_t parts_size,
+                        char redirect_type, char redirect_file_path[PATH_MAX],
+                        int is_append_redirect) {
+  char cwd[PATH_MAX];
+  size_t stdout_value_len = strlen(stdout_value);
+
+  if (get_cwd(cwd, sizeof(cwd)) != NULL) {
+    snprintf(stdout_value + stdout_value_len,
+             OUTPUT_CAPACITY - stdout_value_len, "%s\n", cwd);
+  }
+
+  print_jobs(stdout_value, JOB_PRINTING_TYPE_DONE);
+  print_output_stream(stdout_value, stderr_value, redirect_type,
+                      redirect_file_path, is_append_redirect);
+}
+
+void handle_cd_command(char *stdout_value, char *stderr_value,
+                       char *parts[INPUT_CAPACITY], size_t parts_size,
+                       char redirect_type, char redirect_file_path[PATH_MAX],
+                       int is_append_redirect) {
+  // set the path to the home if the user prvoide not second argument to
+  // the cd or he uses ~
+  char *path =
+      strdup(parts[1] == NULL || strcmp(parts[1], "~") == 0 ? getenv("HOME")
+                                                            : parts[1]);
+  size_t stderr_value_len = strlen(stderr_value);
+
+  // check if the path is exist.
+  if (chdir(path) == -1 && errno == ENOENT) {
+    snprintf(stderr_value + stderr_value_len,
+             OUTPUT_CAPACITY - stderr_value_len,
+             "cd: %s: No such file or directory\n", path);
+  }
+
+  free(path);
+
+  print_jobs(stdout_value, JOB_PRINTING_TYPE_DONE);
+  print_output_stream(stdout_value, stderr_value, redirect_type,
+                      redirect_file_path, is_append_redirect);
+}
+
+void handle_complete_command(char *stdout_value, char *stderr_value,
+                             char *parts[INPUT_CAPACITY], size_t parts_size,
+                             char redirect_type,
+                             char redirect_file_path[PATH_MAX],
+                             int is_append_redirect) {
+  if (parts_size >= 3) {
+    char *flag = parts[1];
+
+    if (strcmp(flag, "-p") == 0) {
+      char *lookup_cmd = parts[2];
+      size_t stderr_value_len = strlen(stderr_value);
+      size_t stdout_value_len = strlen(stdout_value);
+      char *completer = NULL;
+
+      if (find_complete_history_completer(
+              complete_cmd_state.complete_history,
+              complete_cmd_state.complete_history_size, lookup_cmd,
+              &completer)) {
+        snprintf(stdout_value + stdout_value_len,
+                 OUTPUT_CAPACITY - stdout_value_len, "complete -C '%s' %s",
+                 completer, lookup_cmd);
+
+        free(completer);
+      } else {
+        snprintf(stderr_value + stderr_value_len,
+                 OUTPUT_CAPACITY - stderr_value_len,
+                 "complete: %s: no completion specification", lookup_cmd);
+      }
+    } else if (strcmp(flag, "-r") == 0) {
+      remove_complete_history_elem(complete_cmd_state.complete_history,
+                                   &complete_cmd_state.complete_history_size,
+                                   parts[2]);
+    } else if (parts_size > 3 && strcmp(flag, "-C") == 0) {
+      if (complete_cmd_state.complete_history_size <
+          COMPLETE_HISTORY_CAPACITY) {
+        char *new_cmd = parts[3];
+        char *new_path = parts[2];
+        char cmd_to_path[COMPLETE_HISTORY_ELEM_CAPACITY] = {0};
+
+        if (strlen(new_cmd) + strlen(new_path) + 2 <
+            COMPLETE_HISTORY_ELEM_CAPACITY) {
+          snprintf(cmd_to_path, COMPLETE_HISTORY_ELEM_CAPACITY, "%s:%s",
+                   new_cmd, new_path);
+          int is_new_cmd = 1;
+
+          for (size_t i = 0; i < complete_cmd_state.complete_history_size;
+               i++) {
+
+            if (complete_cmd_state.complete_history[i] == NULL)
+
+              continue;
+
+            char *history_elem = strdup(complete_cmd_state.complete_history[i]);
+
+            char *prev_cmd = strtok(history_elem, ":");
+
+            if (strcmp(prev_cmd, new_cmd) == 0) {
+              is_new_cmd = 0;
+              free(complete_cmd_state.complete_history[i]);
+              complete_cmd_state.complete_history[i] = strdup(cmd_to_path);
+            }
+
+            free(history_elem);
+
+            if (!is_new_cmd)
+              break;
+          }
+
+          if (is_new_cmd) {
+            complete_cmd_state
+                .complete_history[complete_cmd_state.complete_history_size++] =
+                strdup(cmd_to_path);
+          }
+        }
+      }
+    }
+  }
+
+  print_jobs(stdout_value, JOB_PRINTING_TYPE_DONE);
+  print_output_stream(stdout_value, stderr_value, redirect_type,
+                      redirect_file_path, is_append_redirect);
+}
+
+void handle_jobs_command(char *stdout_value, char *stderr_value,
+                         char redirect_type, char redirect_file_path[PATH_MAX],
+                         int is_append_redirect) {
+  print_jobs(stdout_value, JOB_PRINTING_TYPE_ALL);
+  print_output_stream(stdout_value, stderr_value, redirect_type,
+                      redirect_file_path, is_append_redirect);
+}
+
+void handle_external_program(char program_path[PATH_MAX],
+                             char *parts[INPUT_CAPACITY]) {
+  execvp(program_path, parts);
+  perror("execvp");
+  exit(1);
+}
+
+void handle_command_not_found(char *stdout_value, char *stderr_value,
+                              char *input, char redirect_type,
+                              char redirect_file_path[PATH_MAX],
+                              int is_append_redirect) {
+  size_t stderr_value_len = strlen(stderr_value);
+  snprintf(stderr_value + stderr_value_len, OUTPUT_CAPACITY - stderr_value_len,
+           "%s: command not found\n", input);
+
+  print_jobs(stdout_value, JOB_PRINTING_TYPE_DONE);
+
+  print_output_stream(stdout_value, stderr_value, redirect_type,
+                      redirect_file_path, is_append_redirect);
+}
+
+void execute_program(ProcessArgs *args) {
+  char external_program_path[PATH_MAX] = {0};
+
+  // if the input is exit exit the loop
+  if (strcmp(args->input, "exit") == 0) {
+    handle_exit_command();
+  } else if (strcmp(args->parts[0], "echo") == 0) {
+    handle_echo_command(args->stdout_value, args->stderr_value, args->parts,
+                        args->parts_size, args->redirect_type,
+                        args->redirect_file_path, args->is_append_redirect);
+  } else if (strcmp(args->parts[0], "type") == 0) {
+    handle_type_command(args->stdout_value, args->stderr_value, args->parts,
+                        args->parts_size, args->redirect_type,
+                        args->redirect_file_path, args->is_append_redirect);
+  } else if (strcmp(args->parts[0], "pwd") == 0) {
+    handle_pwd_command(args->stdout_value, args->stderr_value, args->parts,
+                       args->parts_size, args->redirect_type,
+                       args->redirect_file_path, args->is_append_redirect);
+  } else if (strcmp(args->parts[0], "cd") == 0) {
+    handle_cd_command(args->stdout_value, args->stderr_value, args->parts,
+                      args->parts_size, args->redirect_type,
+                      args->redirect_file_path, args->is_append_redirect);
+  } else if (strcmp(args->parts[0], "complete") == 0) {
+    handle_complete_command(args->stdout_value, args->stderr_value, args->parts,
+                            args->parts_size, args->redirect_type,
+                            args->redirect_file_path, args->is_append_redirect);
+  } else if (strcmp(args->parts[0], "jobs") == 0) {
+    handle_jobs_command(args->stdout_value, args->stderr_value,
+                        args->redirect_type, args->redirect_file_path,
+                        args->is_append_redirect);
+  } else if (find_program_path(args->parts[0], external_program_path)) {
+    handle_external_program(external_program_path, args->parts);
+  } else {
+    handle_command_not_found(args->stdout_value, args->stderr_value,
+                             args->input, args->redirect_type,
+                             args->redirect_file_path,
+                             args->is_append_redirect);
+  }
+}
+
+void *new_process(void *args) {
+  ProcessArgs *params = (ProcessArgs *)args;
+
+  int stdout_pipe[2];
+  int stderr_pipe[2];
+  // make the pipe before the fork so the child inherit it.
+  // the pipe works this way, anything get written to the fds[1] you
+  // can read it from fds[0]
+  pipe(stdout_pipe);
+  pipe(stderr_pipe);
+
+  pid_t pid = fork();
+
+  // child
+  if (pid == 0) {
+    // close the read end because child only write
+    close(stdout_pipe[0]);
+    close(stderr_pipe[0]);
+    // make whatever the fd=1 "stdout" point from terminal to whatever
+    // fds[1] points to, this is how we get the the stdout_value from
+    // the terminal
+    dup2(stdout_pipe[1], 1);
+    dup2(stderr_pipe[1], 2);
+    // close the write end because the child does not need to write
+    // anymore
+    close(stdout_pipe[1]);
+    close(stderr_pipe[1]);
+    // exucute the command
+    execute_program(args);
+    _exit(0);
+    // parent
+  } else {
+    // Add the job info to jobs list
+    add_job(pid, params->input);
+
+    size_t stdout_value_len = strlen(params->stdout_value);
+    snprintf(params->stdout_value + stdout_value_len,
+             OUTPUT_CAPACITY - stdout_value_len, "[%d] %d\n",
+             jobs_state.next_job_num, pid);
+
+    print_jobs(params->stdout_value, JOB_PRINTING_TYPE_DONE);
+    print_output_stream(params->stdout_value, params->stderr_value,
+                        params->redirect_type, params->redirect_file_path,
+                        params->is_append_redirect);
+
+    snprintf(params->stdout_value, OUTPUT_CAPACITY, "");
+    // close the write end in the parent because the parent only read.
+    close(stdout_pipe[1]);
+    close(stderr_pipe[1]);
+
+    stdout_value_len = strlen(params->stdout_value);
+
+    // get the data that the fds[0] points
+    FILE *f_out = fdopen(stdout_pipe[0], "r");
+    FILE *f_err = fdopen(stderr_pipe[0], "r");
+    size_t stderr_value_len = 0;
+    char line[256];
+
+    // read it
+    while (fgets(line, sizeof(line), f_out) != NULL) {
+      snprintf(params->stdout_value + stdout_value_len,
+               OUTPUT_CAPACITY - stdout_value_len, "%s", line);
+      stdout_value_len = strlen(params->stdout_value);
+    }
+
+    while (fgets(line, sizeof(line), f_err) != NULL) {
+      snprintf(params->stderr_value + stderr_value_len,
+               OUTPUT_CAPACITY - stderr_value_len, "%s", line);
+      stderr_value_len = strlen(params->stderr_value);
+    }
+
+    fclose(f_out);
+    fclose(f_err);
+
+    waitpid(pid, NULL, 0);
+  }
+
+  print_output_stream(params->stdout_value, params->stderr_value,
+                      params->redirect_type, params->redirect_file_path,
+                      params->is_append_redirect);
+
+  make_job_done(params->job_num);
+
+  free(params->stdout_value);
+  free(params->stderr_value);
+  free_input_parts(params->parts, params->parts_size);
+
   free(args);
 
   return NULL;
@@ -843,269 +1153,54 @@ int main(int argc, char *argv[]) {
       size_t last_part_index = parts_size - 1;
       if (strcmp(parts[last_part_index], "&") == 0) {
         is_background_job = 1;
+        free(parts[last_part_index]);
         parts[last_part_index] = NULL;
         parts_size--;
       }
 
-      // if the input is exit exit the loop
-      if (strcmp(input, "exit") == 0) {
-        free_input_parts(parts, parts_size);
-        break;
-        // check if the first part is echo cmd
-      } else if (strcmp(parts[0], "echo") == 0) {
-        size_t i = 1;
-        size_t stdout_value_len = strlen(stdout_value);
+      ProcessArgs *args = malloc(sizeof(ProcessArgs));
+      // Copy the input string
+      snprintf(args->input, sizeof(args->input), "%s", input);
 
-        // print all the sentences after the echo cmd
-        while (i < parts_size) {
-          snprintf(stdout_value + stdout_value_len,
-                   sizeof(stdout_value) - stdout_value_len, "%s ", parts[i++]);
-
-          stdout_value_len = strlen(stdout_value);
+      // Copy the parsed arguments
+      args->parts_size = parts_size;
+      for (size_t i = 0; i < parts_size; i++) {
+        args->parts[i] = strdup(parts[i]);
+        if (parts[i] != NULL) {
+          free(parts[i]);
         }
+      }
 
-        snprintf(stdout_value + stdout_value_len,
-                 sizeof(stdout_value) - stdout_value_len, "\n");
+      if (parts[parts_size] != NULL) {
+        free(parts[parts_size]);
+      }
 
-        // check if it's a type cmd
-      } else if (strcmp(parts[0], "type") == 0) {
-        size_t i = 1;
+      args->parts[parts_size] = NULL;
 
-        // loop over the cmds after it.
-        while (i < parts_size) {
-          char *cmd = parts[i++];
-          size_t stdout_value_len = strlen(stdout_value);
+      // Redirect information
+      args->redirect_type = redirect_type;
+      args->is_append_redirect = is_append_redirect;
+      snprintf(args->redirect_file_path, sizeof(args->redirect_file_path), "%s",
+               redirect_file_path);
 
-          // check if the cmd is builtin.
-          if (strcmp(cmd, "echo") == 0 || strcmp(cmd, "exit") == 0 ||
-              strcmp(cmd, "type") == 0 || strcmp(cmd, "pwd") == 0 ||
-              strcmp(cmd, "complete") == 0 || strcmp(cmd, "jobs") == 0) {
+      // Output buffers (foreground uses the stack buffers)
+      args->stdout_value = stdout_value;
+      args->stderr_value = stderr_value;
 
-            snprintf(stdout_value + stdout_value_len,
-                     sizeof(stdout_value) - stdout_value_len,
-                     "%s is a shell builtin\n", cmd);
-
-            // chearch for the cmd in the PATH.
-          } else {
-            char full_path[PATH_MAX];
-
-            if (lookup_program(cmd, full_path)) {
-              snprintf(stdout_value + stdout_value_len,
-                       sizeof(stdout_value) - stdout_value_len, "%s is %s\n",
-                       cmd, full_path);
-            } else {
-              snprintf(stdout_value + stdout_value_len,
-                       sizeof(stdout_value) - stdout_value_len,
-                       "%s: not found\n", cmd);
-            }
-          }
-        }
-      } else if (strcmp(parts[0], "pwd") == 0) {
-        char cwd[PATH_MAX];
-        size_t stdout_value_len = strlen(stdout_value);
-
-        if (get_cwd(cwd, sizeof(cwd)) != NULL) {
-          snprintf(stdout_value + stdout_value_len,
-                   sizeof(stdout_value) - stdout_value_len, "%s\n", cwd);
-        } else {
-          free_input_parts(parts, parts_size);
-          return 1;
-        }
-      } else if (strcmp(parts[0], "cd") == 0) {
-        // set the path to the home if the user prvoide not second argument to
-        // the cd or he uses ~
-        char *path = strdup(parts[1] == NULL || strcmp(parts[1], "~") == 0
-                                ? getenv("HOME")
-                                : parts[1]);
-        size_t stderr_value_len = strlen(stderr_value);
-
-        // check if the path is exist.
-        if (chdir(path) == -1 && errno == ENOENT) {
-          snprintf(stderr_value + stderr_value_len,
-                   sizeof(stderr_value) - stderr_value_len,
-                   "cd: %s: No such file or directory\n", path);
-        }
-
-        free(path);
-      } else if (strcmp(parts[0], "complete") == 0) {
-        if (parts_size >= 3) {
-          char *flag = parts[1];
-
-          if (strcmp(flag, "-p") == 0) {
-            char *lookup_cmd = parts[2];
-            size_t stderr_value_len = strlen(stderr_value);
-            size_t stdout_value_len = strlen(stdout_value);
-            char *completer = NULL;
-
-            if (find_complete_history_completer(
-                    complete_cmd_state.complete_history,
-                    complete_cmd_state.complete_history_size, lookup_cmd,
-                    &completer)) {
-              snprintf(stdout_value + stdout_value_len,
-                       sizeof(stdout_value) - stdout_value_len,
-                       "complete -C '%s' %s", completer, lookup_cmd);
-
-              free(completer);
-            } else {
-              snprintf(stderr_value + stderr_value_len,
-                       sizeof(stderr_value) - stderr_value_len,
-                       "complete: %s: no completion specification", lookup_cmd);
-            }
-          } else if (strcmp(flag, "-r") == 0) {
-            remove_complete_history_elem(
-                complete_cmd_state.complete_history,
-                &complete_cmd_state.complete_history_size, parts[2]);
-          } else if (parts_size > 3 && strcmp(flag, "-C") == 0) {
-            if (complete_cmd_state.complete_history_size <
-                COMPLETE_HISTORY_CAPACITY) {
-              char *new_cmd = parts[3];
-              char *new_path = parts[2];
-              char cmd_to_path[COMPLETE_HISTORY_ELEM_CAPACITY] = {0};
-
-              if (strlen(new_cmd) + strlen(new_path) + 2 <
-                  COMPLETE_HISTORY_ELEM_CAPACITY) {
-                snprintf(cmd_to_path, COMPLETE_HISTORY_ELEM_CAPACITY, "%s:%s",
-                         new_cmd, new_path);
-                int is_new_cmd = 1;
-
-                for (size_t i = 0; i < complete_cmd_state.complete_history_size;
-                     i++) {
-
-                  if (complete_cmd_state.complete_history[i] == NULL)
-
-                    continue;
-
-                  char *history_elem =
-                      strdup(complete_cmd_state.complete_history[i]);
-
-                  char *prev_cmd = strtok(history_elem, ":");
-
-                  if (strcmp(prev_cmd, new_cmd) == 0) {
-                    is_new_cmd = 0;
-                    free(complete_cmd_state.complete_history[i]);
-                    complete_cmd_state.complete_history[i] =
-                        strdup(cmd_to_path);
-                  }
-
-                  free(history_elem);
-
-                  if (!is_new_cmd)
-                    break;
-                }
-
-                if (is_new_cmd) {
-
-                  complete_cmd_state.complete_history
-                      [complete_cmd_state.complete_history_size++] =
-
-                      strdup(cmd_to_path);
-                }
-              }
-            }
-          }
-        }
-      } else if (strcmp(parts[0], "jobs") == 0) {
-        print_jobs(stdout_value, JOB_PRINTING_TYPE_ALL);
+      if (is_background_job) {
+        pthread_t new_thread;
+        args->stdout_value = calloc(OUTPUT_CAPACITY, sizeof(char));
+        args->stderr_value = calloc(OUTPUT_CAPACITY, sizeof(char));
+        args->job_num = jobs_state.next_job_num;
+        pthread_create(&new_thread, NULL, new_process, args);
+        // detach it.
+        pthread_detach(new_thread);
       } else {
-        char full_path[PATH_MAX] = {0};
+        execute_program(args);
+        free_input_parts(args->parts, args->parts_size);
 
-        if (lookup_program(parts[0], full_path)) {
-          int stdout_pipe[2];
-          int stderr_pipe[2];
-          // make the pipe before the fork so the child inherit it.
-          // the pipe works this way, anything get written to the fds[1] you
-          // can read it from fds[0]
-          pipe(stdout_pipe);
-          pipe(stderr_pipe);
-
-          pid_t pid = fork();
-
-          // child
-          if (pid == 0) {
-            // close the read end because child only write
-            close(stdout_pipe[0]);
-            close(stderr_pipe[0]);
-            // make whatever the fd=1 "stdout" point from terminal to whatever
-            // fds[1] points to, this is how we get the the stdout_value from
-            // the terminal
-            dup2(stdout_pipe[1], 1);
-            dup2(stderr_pipe[1], 2);
-            // close the write end because the child does not need to write
-            // anymore
-            close(stdout_pipe[1]);
-            close(stderr_pipe[1]);
-            // exucute the command
-            execvp(full_path, parts);
-            // this happend if the execvp fails
-            perror("execvp");
-            exit(1);
-            // parent
-          } else {
-            // close the write end in the parent because the parent only read.
-            close(stdout_pipe[1]);
-            close(stderr_pipe[1]);
-
-            // get the data that the fds[0] points
-            FILE *f_out = fdopen(stdout_pipe[0], "r");
-            FILE *f_err = fdopen(stderr_pipe[0], "r");
-
-            SubProcessOutputStreamArgs *args =
-                malloc(sizeof(SubProcessOutputStreamArgs));
-
-            args->f_out = f_out;
-            args->f_err = f_err;
-            args->is_background_job = is_background_job;
-            args->redirect_type = redirect_type;
-            args->redirect_file_path = strdup(redirect_file_path);
-            args->is_append_redirect = is_append_redirect;
-            args->job_num = -1;
-            args->pid = pid;
-
-            if (is_background_job) {
-              size_t stdout_value_len = strlen(stdout_value);
-              pthread_t new_thread;
-              snprintf(stdout_value + stdout_value_len,
-                       sizeof(stdout_value) - stdout_value_len, "[%d] %d\n",
-                       jobs_state.next_job_num, pid);
-              print_jobs(stdout_value, JOB_PRINTING_TYPE_DONE);
-              handle_terminal_output(stdout_value, stderr_value, redirect_type,
-                                     redirect_file_path, is_append_redirect);
-              snprintf(stdout_value, sizeof(stdout_value), "");
-              // handle it in another thread;
-              args->stdout_value = calloc(OUTPUT_CAPACITY, sizeof(char));
-              args->stderr_value = calloc(OUTPUT_CAPACITY, sizeof(char));
-              args->job_num = jobs_state.next_job_num;
-              // Add the job info to jobs list
-              add_job(pid, input);
-              pthread_create(&new_thread, NULL,
-                             capture_subprocess_output_stream, args);
-              // detach it.
-              pthread_detach(new_thread);
-              free_input_parts(parts, parts_size);
-              continue;
-            } else {
-              // handle it normaly
-              args->stdout_value = stdout_value;
-              args->stderr_value = stderr_value;
-              capture_subprocess_output_stream(args);
-            }
-          }
-        } else {
-          size_t stderr_value_len = strlen(stderr_value);
-          snprintf(stderr_value + stderr_value_len,
-                   sizeof(stderr_value) - stderr_value_len,
-                   "%s: command not found\n", input);
-        }
+        free(args);
       }
-
-      if (strcmp(parts[0], "jobs") != 0) {
-        print_jobs(stdout_value, JOB_PRINTING_TYPE_DONE);
-      }
-
-      handle_terminal_output(stdout_value, stderr_value, redirect_type,
-                             redirect_file_path, is_append_redirect);
-
-      free_input_parts(parts, parts_size);
     }
   }
 
