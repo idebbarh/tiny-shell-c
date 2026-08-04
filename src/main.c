@@ -44,6 +44,9 @@ typedef struct {
   int is_append_redirect;
   size_t parts_size;
   int job_num;
+  pid_t pid;
+  FILE *f_out;
+  FILE *f_err;
 } ProcessArgs;
 
 typedef struct {
@@ -72,7 +75,7 @@ static char **curr_completer_value;
 static JobsState jobs_state = {0};
 
 static const char *cmd_names[] = {"exit", "echo",     "type", "pwd",
-                                  "cd",   "complete", NULL};
+                                  "cd",   "complete", "jobs", NULL};
 
 char *generate_padding(int length) {
   char *result = calloc(length + 1, sizeof(char));
@@ -749,7 +752,7 @@ void print_jobs(char stdout_value[OUTPUT_CAPACITY], char *type) {
   }
 }
 
-void handle_exit_command() {}
+void handle_exit_command() { exit(0); }
 
 void handle_echo_command(char *stdout_value, char *stderr_value,
                          char *parts[INPUT_CAPACITY], size_t parts_size,
@@ -977,11 +980,9 @@ void execute_program(ProcessArgs *args) {
   if (strcmp(args->input, "exit") == 0) {
     handle_exit_command();
   } else if (strcmp(args->parts[0], "echo") == 0) {
-    /* handle_echo_command(args->stdout_value, args->stderr_value, args->parts,
-     */
-    /*                     args->parts_size, args->redirect_type, */
-    /*                     args->redirect_file_path, args->is_append_redirect);
-     */
+    handle_echo_command(args->stdout_value, args->stderr_value, args->parts,
+                        args->parts_size, args->redirect_type,
+                        args->redirect_file_path, args->is_append_redirect);
   } else if (strcmp(args->parts[0], "type") == 0) {
     handle_type_command(args->stdout_value, args->stderr_value, args->parts,
                         args->parts_size, args->redirect_type,
@@ -1012,7 +1013,51 @@ void execute_program(ProcessArgs *args) {
   }
 }
 
-void *new_process(void *args) {
+void *handle_background_job_output(void *args) {
+  ProcessArgs *params = (ProcessArgs *)args;
+
+  // close the write end in the parent because the parent only read.
+
+  // get the data that the fds[0] points
+  size_t stderr_value_len = 0;
+  char line[256];
+
+  size_t stdout_value_len = strlen(params->stdout_value);
+
+  // read it
+  while (fgets(line, sizeof(line), params->f_out) != NULL) {
+    snprintf(params->stdout_value + stdout_value_len,
+             OUTPUT_CAPACITY - stdout_value_len, "%s", line);
+    stdout_value_len = strlen(params->stdout_value);
+  }
+
+  while (fgets(line, sizeof(line), params->f_err) != NULL) {
+    snprintf(params->stderr_value + stderr_value_len,
+             OUTPUT_CAPACITY - stderr_value_len, "%s", line);
+    stderr_value_len = strlen(params->stderr_value);
+  }
+
+  fclose(params->f_out);
+  fclose(params->f_err);
+
+  waitpid(params->pid, NULL, 0);
+
+  print_output_stream(params->stdout_value, params->stderr_value,
+                      params->redirect_type, params->redirect_file_path,
+                      params->is_append_redirect);
+
+  make_job_done(params->job_num);
+
+  free(params->stdout_value);
+  free(params->stderr_value);
+  free_input_parts(params->parts, params->parts_size);
+
+  free(args);
+
+  return NULL;
+}
+
+void new_background_job(ProcessArgs *args) {
   ProcessArgs *params = (ProcessArgs *)args;
 
   int stdout_pipe[2];
@@ -1041,28 +1086,77 @@ void *new_process(void *args) {
     close(stderr_pipe[1]);
     // exucute the command
     execute_program(args);
-    /* _exit(0); */
+    _exit(0);
     // parent
   } else {
     // Add the job info to jobs list
-    add_job(pid, params->input);
-
     size_t stdout_value_len = strlen(params->stdout_value);
+    pthread_t new_thread;
+
+    add_job(pid, params->input);
     snprintf(params->stdout_value + stdout_value_len,
              OUTPUT_CAPACITY - stdout_value_len, "[%d] %d\n",
              jobs_state.next_job_num, pid);
-
     print_jobs(params->stdout_value, JOB_PRINTING_TYPE_DONE);
     print_output_stream(params->stdout_value, params->stderr_value,
                         params->redirect_type, params->redirect_file_path,
                         params->is_append_redirect);
-
     snprintf(params->stdout_value, OUTPUT_CAPACITY, "");
-    // close the write end in the parent because the parent only read.
+
     close(stdout_pipe[1]);
     close(stderr_pipe[1]);
 
-    stdout_value_len = strlen(params->stdout_value);
+    FILE *f_out = fdopen(stdout_pipe[0], "r");
+    FILE *f_err = fdopen(stderr_pipe[0], "r");
+
+    args->f_out = f_out;
+    args->f_err = f_err;
+    args->pid = pid;
+
+    pthread_create(&new_thread, NULL, handle_background_job_output, args);
+    // detach it.
+    pthread_detach(new_thread);
+  }
+}
+
+void new_process(ProcessArgs *args, char external_program_path[PATH_MAX]) {
+  ProcessArgs *params = (ProcessArgs *)args;
+
+  int stdout_pipe[2];
+  int stderr_pipe[2];
+  // make the pipe before the fork so the child inherit it.
+  // the pipe works this way, anything get written to the fds[1] you
+  // can read it from fds[0]
+  pipe(stdout_pipe);
+  pipe(stderr_pipe);
+
+  pid_t pid = fork();
+
+  // child
+  if (pid == 0) {
+    // close the read end because child only write
+    close(stdout_pipe[0]);
+    close(stderr_pipe[0]);
+    // make whatever the fd=1 "stdout" point from terminal to whatever
+    // fds[1] points to, this is how we get the the stdout_value from
+    // the terminal
+    dup2(stdout_pipe[1], 1);
+    dup2(stderr_pipe[1], 2);
+    // close the write end because the child does not need to write
+    // anymore
+    close(stdout_pipe[1]);
+    close(stderr_pipe[1]);
+    // exucute the command
+
+    handle_external_program(external_program_path, params->parts);
+    // parent
+  } else {
+    // Add the job info to jobs list
+    size_t stdout_value_len = strlen(params->stdout_value);
+
+    // close the write end in the parent because the parent only read.
+    close(stdout_pipe[1]);
+    close(stderr_pipe[1]);
 
     // get the data that the fds[0] points
     FILE *f_out = fdopen(stdout_pipe[0], "r");
@@ -1092,16 +1186,6 @@ void *new_process(void *args) {
   print_output_stream(params->stdout_value, params->stderr_value,
                       params->redirect_type, params->redirect_file_path,
                       params->is_append_redirect);
-
-  make_job_done(params->job_num);
-
-  free(params->stdout_value);
-  free(params->stderr_value);
-  free_input_parts(params->parts, params->parts_size);
-
-  free(args);
-
-  return NULL;
 }
 
 int main(int argc, char *argv[]) {
@@ -1189,18 +1273,37 @@ int main(int argc, char *argv[]) {
       args->stdout_value = stdout_value;
       args->stderr_value = stderr_value;
 
+      int is_external_program = 1;
+
+      for (size_t i = 0; i < sizeof(cmd_names) / sizeof(cmd_names[0]); i++) {
+        if (cmd_names[i] == NULL)
+          continue;
+        if (strcmp(args->input, cmd_names[i]) == 0 ||
+            strcmp(args->parts[0], cmd_names[i]) == 0) {
+          is_external_program = 0;
+          break;
+        }
+      }
+
+      char external_program_path[PATH_MAX] = {0};
+      if (is_external_program) {
+        is_external_program =
+            find_program_path(args->parts[0], external_program_path);
+      }
+
       if (is_background_job) {
         pthread_t new_thread;
         args->stdout_value = calloc(OUTPUT_CAPACITY, sizeof(char));
         args->stderr_value = calloc(OUTPUT_CAPACITY, sizeof(char));
         args->job_num = jobs_state.next_job_num;
-        pthread_create(&new_thread, NULL, new_process, args);
-        // detach it.
-        pthread_detach(new_thread);
+        new_background_job(args);
+      } else if (is_external_program) {
+        new_process(args, external_program_path);
+        free_input_parts(args->parts, args->parts_size);
+        free(args);
       } else {
         execute_program(args);
         free_input_parts(args->parts, args->parts_size);
-
         free(args);
       }
     }
