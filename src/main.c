@@ -37,6 +37,7 @@
 typedef struct {
   char input[INPUT_CAPACITY];
   char *parts[INPUT_CAPACITY];
+  char *stdin_value;
   char *stdout_value;
   char *stderr_value;
   char redirect_file_path[PATH_MAX];
@@ -1122,11 +1123,13 @@ void new_background_job(ProcessArgs *args) {
 void new_process(ProcessArgs *args, char external_program_path[PATH_MAX]) {
   ProcessArgs *params = (ProcessArgs *)args;
 
+  int stdin_pipe[2];
   int stdout_pipe[2];
   int stderr_pipe[2];
   // make the pipe before the fork so the child inherit it.
   // the pipe works this way, anything get written to the fds[1] you
   // can read it from fds[0]
+  pipe(stdin_pipe);
   pipe(stdout_pipe);
   pipe(stderr_pipe);
 
@@ -1135,15 +1138,18 @@ void new_process(ProcessArgs *args, char external_program_path[PATH_MAX]) {
   // child
   if (pid == 0) {
     // close the read end because child only write
+    close(stdin_pipe[1]);
     close(stdout_pipe[0]);
     close(stderr_pipe[0]);
     // make whatever the fd=1 "stdout" point from terminal to whatever
     // fds[1] points to, this is how we get the the stdout_value from
     // the terminal
-    dup2(stdout_pipe[1], 1);
-    dup2(stderr_pipe[1], 2);
+    dup2(stdin_pipe[0], STDIN_FILENO);
+    dup2(stdout_pipe[1], STDOUT_FILENO);
+    dup2(stderr_pipe[1], STDERR_FILENO);
     // close the write end because the child does not need to write
     // anymore
+    close(stdin_pipe[0]);
     close(stdout_pipe[1]);
     close(stderr_pipe[1]);
     // exucute the command
@@ -1155,26 +1161,46 @@ void new_process(ProcessArgs *args, char external_program_path[PATH_MAX]) {
     size_t stdout_value_len = strlen(params->stdout_value);
 
     // close the write end in the parent because the parent only read.
+    close(stdin_pipe[0]);
     close(stdout_pipe[1]);
     close(stderr_pipe[1]);
+
+    if (params->stdin_value != NULL && strlen(params->stdin_value) > 0) {
+      write(stdin_pipe[1], params->stdin_value, strlen(params->stdin_value));
+    }
+
+    close(stdin_pipe[1]);
 
     // get the data that the fds[0] points
     FILE *f_out = fdopen(stdout_pipe[0], "r");
     FILE *f_err = fdopen(stderr_pipe[0], "r");
     size_t stderr_value_len = 0;
     char line[256];
+    int first_iter = 0;
 
     // read it
     while (fgets(line, sizeof(line), f_out) != NULL) {
-      snprintf(params->stdout_value + stdout_value_len,
-               OUTPUT_CAPACITY - stdout_value_len, "%s", line);
-      stdout_value_len = strlen(params->stdout_value);
+      snprintf(params->stdout_value, OUTPUT_CAPACITY, "%s", line);
+      print_output_stream(params->stdout_value, params->stderr_value,
+                          params->redirect_type, params->redirect_file_path,
+                          first_iter == 1 ? 1 : params->is_append_redirect);
+
+      if (!first_iter) {
+        first_iter = 1;
+      }
     }
 
+    first_iter = 0;
+    snprintf(params->stdout_value, OUTPUT_CAPACITY, "%s", "");
     while (fgets(line, sizeof(line), f_err) != NULL) {
-      snprintf(params->stderr_value + stderr_value_len,
-               OUTPUT_CAPACITY - stderr_value_len, "%s", line);
-      stderr_value_len = strlen(params->stderr_value);
+      snprintf(params->stderr_value, OUTPUT_CAPACITY, "%s", line);
+      print_output_stream(params->stdout_value, params->stderr_value,
+                          params->redirect_type, params->redirect_file_path,
+                          first_iter == 1 ? 1 : params->is_append_redirect);
+
+      if (!first_iter) {
+        first_iter = 1;
+      }
     }
 
     fclose(f_out);
@@ -1182,10 +1208,115 @@ void new_process(ProcessArgs *args, char external_program_path[PATH_MAX]) {
 
     waitpid(pid, NULL, 0);
   }
+}
 
-  print_output_stream(params->stdout_value, params->stderr_value,
-                      params->redirect_type, params->redirect_file_path,
-                      params->is_append_redirect);
+void pipline_handler(char input[INPUT_CAPACITY], char *stdin_value) {
+  char stdout_value[OUTPUT_CAPACITY] = {0};
+  char stderr_value[OUTPUT_CAPACITY] = {0};
+  char *parts[INPUT_CAPACITY] = {0};
+
+  // split it by space and store the parts in parts
+  size_t parts_size = input_parser(input, parts);
+  char redirect_file_path[PATH_MAX];
+
+  // check if there a redirect >
+  int is_background_job = 0;
+  int is_append_redirect = 0;
+  char redirect_type = check_for_redirect(parts, parts_size, redirect_file_path,
+                                          &is_append_redirect);
+
+  // modify the parts
+  if (redirect_type != '\0') {
+    size_t start = 0;
+    size_t ps = parts_size;
+    while (start < parts_size &&
+           (strlen(parts[start]) == 0 ||
+            parts[start][strlen(parts[start]) - 1] != '>')) {
+      start++;
+    }
+
+    for (size_t i = start; i < ps; i++) {
+      parts_size--;
+      if (parts[i] != NULL) {
+        free(parts[i]);
+        parts[i] = NULL;
+      }
+    }
+  }
+
+  size_t last_part_index = parts_size - 1;
+  if (strcmp(parts[last_part_index], "&") == 0) {
+    is_background_job = 1;
+    free(parts[last_part_index]);
+    parts[last_part_index] = NULL;
+    parts_size--;
+  }
+
+  ProcessArgs *args = malloc(sizeof(ProcessArgs));
+  // Copy the input string
+  snprintf(args->input, sizeof(args->input), "%s", input);
+
+  // Copy the parsed arguments
+  args->parts_size = parts_size;
+  for (size_t i = 0; i < parts_size; i++) {
+    args->parts[i] = strdup(parts[i]);
+    if (parts[i] != NULL) {
+      free(parts[i]);
+    }
+  }
+
+  if (parts[parts_size] != NULL) {
+    free(parts[parts_size]);
+  }
+
+  args->parts[parts_size] = NULL;
+
+  // Redirect information
+  args->redirect_type = redirect_type;
+  args->is_append_redirect = is_append_redirect;
+  snprintf(args->redirect_file_path, sizeof(args->redirect_file_path), "%s",
+           redirect_file_path);
+
+  args->stdout_value = stdout_value;
+  args->stderr_value = stderr_value;
+
+  int is_external_program = 1;
+
+  for (size_t i = 0; i < sizeof(cmd_names) / sizeof(cmd_names[0]); i++) {
+    if (cmd_names[i] == NULL)
+      continue;
+    if (strcmp(args->input, cmd_names[i]) == 0 ||
+        strcmp(args->parts[0], cmd_names[i]) == 0) {
+      is_external_program = 0;
+      break;
+    }
+  }
+
+  char external_program_path[PATH_MAX] = {0};
+  if (is_external_program) {
+    is_external_program =
+        find_program_path(args->parts[0], external_program_path);
+  }
+
+  if (is_background_job) {
+    pthread_t new_thread;
+    args->stdout_value = calloc(OUTPUT_CAPACITY, sizeof(char));
+    args->stderr_value = calloc(OUTPUT_CAPACITY, sizeof(char));
+    args->job_num = jobs_state.next_job_num;
+    new_background_job(args);
+  } else if (is_external_program) {
+    if (stdin_value != NULL && strlen(stdin_value) > 0) {
+      args->stdin_value = stdin_value;
+    }
+
+    new_process(args, external_program_path);
+    free_input_parts(args->parts, args->parts_size);
+    free(args);
+  } else {
+    execute_program(args);
+    free_input_parts(args->parts, args->parts_size);
+    free(args);
+  }
 }
 
 int main(int argc, char *argv[]) {
@@ -1198,113 +1329,105 @@ int main(int argc, char *argv[]) {
 
   while ((readline_val = readline("$ ")) != NULL) {
     char input[INPUT_CAPACITY] = {0};
-    char stdout_value[OUTPUT_CAPACITY] = {0};
-    char stderr_value[OUTPUT_CAPACITY] = {0};
-    char *parts[INPUT_CAPACITY] = {0};
 
     // get user input
     snprintf(input, INPUT_CAPACITY, "%s", readline_val);
 
     // check if not empty
     if (strlen(input) > 0) {
-      // split it by space and store the parts in parts
-      size_t parts_size = input_parser(input, parts);
-      char redirect_file_path[PATH_MAX];
+      char *pipeline[INPUT_CAPACITY];
+      char *input_p = input;
+      size_t cmd_size = 0;
+      size_t pipeline_size = 0;
 
-      // check if there a redirect >
-      int is_background_job = 0;
-      int is_append_redirect = 0;
-      char redirect_type = check_for_redirect(
-          parts, parts_size, redirect_file_path, &is_append_redirect);
-
-      // modify the parts
-      if (redirect_type != '\0') {
-        size_t start = 0;
-        size_t ps = parts_size;
-        while (start < parts_size &&
-               (strlen(parts[start]) == 0 ||
-                parts[start][strlen(parts[start]) - 1] != '>')) {
-          start++;
+      while (*input_p != '\0') {
+        if (*input_p == '|') {
+          pipeline[pipeline_size] = malloc(cmd_size + 1);
+          memcpy(pipeline[pipeline_size], input_p - cmd_size, cmd_size);
+          pipeline[pipeline_size][cmd_size] = '\0';
+          cmd_size = 0;
+          pipeline_size++;
+        } else {
+          cmd_size++;
         }
 
-        for (size_t i = start; i < ps; i++) {
-          parts_size--;
-          if (parts[i] != NULL) {
-            free(parts[i]);
-            parts[i] = NULL;
+        input_p++;
+      }
+
+      if (cmd_size > 0) {
+        pipeline[pipeline_size] = malloc(cmd_size + 1);
+        memcpy(pipeline[pipeline_size], input_p - cmd_size, cmd_size);
+        pipeline[pipeline_size][cmd_size] = '\0';
+        pipeline_size++;
+      }
+
+      // pipeline handler
+      if (pipeline_size == 1) {
+        pipline_handler(pipeline[0], NULL);
+      } else if (pipeline_size > 1) {
+        char prev_stdout_value[OUTPUT_CAPACITY] = {0};
+
+        for (size_t i = 0; i < pipeline_size; i++) {
+          if (i == pipeline_size - 1) {
+            pipline_handler(pipeline[i], prev_stdout_value);
+            continue;
           }
+          // ##########################
+
+          int stdout_pipe[2];
+          // make the pipe before the fork so the child inherit it.
+          // the pipe works this way, anything get written to the fds[1] you
+          // can read it from fds[0]
+          pipe(stdout_pipe);
+
+          pid_t pid = fork();
+
+          // child
+          if (pid == 0) {
+            // close the read end because child only write
+            close(stdout_pipe[0]);
+            // make whatever the fd=1 "stdout" point from terminal to whatever
+            // fds[1] points to, this is how we get the the stdout_value from
+            // the terminal
+            dup2(stdout_pipe[1], 1);
+            // close the write end because the child does not need to write
+            // anymore
+            close(stdout_pipe[1]);
+            // exucute the command
+
+            // first call without stdout;
+            pipline_handler(pipeline[i], i == 0 ? NULL : prev_stdout_value);
+            _exit(0);
+            // parent
+          } else {
+            // Add the job info to jobs list
+
+            size_t prev_stdout_value_len = strlen(prev_stdout_value);
+
+            // close the write end in the parent because the parent only read.
+            close(stdout_pipe[1]);
+
+            // get the data that the fds[0] points
+            FILE *f_out = fdopen(stdout_pipe[0], "r");
+            size_t stderr_value_len = 0;
+            char line[256];
+
+            // read it
+            while (fgets(line, sizeof(line), f_out) != NULL) {
+              snprintf(prev_stdout_value + prev_stdout_value_len,
+                       OUTPUT_CAPACITY - prev_stdout_value_len, "%s", line);
+              prev_stdout_value_len = strlen(prev_stdout_value);
+            }
+
+            fclose(f_out);
+
+            waitpid(pid, NULL, 0);
+          }
+
+          // ###########################
         }
       }
-
-      size_t last_part_index = parts_size - 1;
-      if (strcmp(parts[last_part_index], "&") == 0) {
-        is_background_job = 1;
-        free(parts[last_part_index]);
-        parts[last_part_index] = NULL;
-        parts_size--;
-      }
-
-      ProcessArgs *args = malloc(sizeof(ProcessArgs));
-      // Copy the input string
-      snprintf(args->input, sizeof(args->input), "%s", input);
-
-      // Copy the parsed arguments
-      args->parts_size = parts_size;
-      for (size_t i = 0; i < parts_size; i++) {
-        args->parts[i] = strdup(parts[i]);
-        if (parts[i] != NULL) {
-          free(parts[i]);
-        }
-      }
-
-      if (parts[parts_size] != NULL) {
-        free(parts[parts_size]);
-      }
-
-      args->parts[parts_size] = NULL;
-
-      // Redirect information
-      args->redirect_type = redirect_type;
-      args->is_append_redirect = is_append_redirect;
-      snprintf(args->redirect_file_path, sizeof(args->redirect_file_path), "%s",
-               redirect_file_path);
-
-      args->stdout_value = stdout_value;
-      args->stderr_value = stderr_value;
-
-      int is_external_program = 1;
-
-      for (size_t i = 0; i < sizeof(cmd_names) / sizeof(cmd_names[0]); i++) {
-        if (cmd_names[i] == NULL)
-          continue;
-        if (strcmp(args->input, cmd_names[i]) == 0 ||
-            strcmp(args->parts[0], cmd_names[i]) == 0) {
-          is_external_program = 0;
-          break;
-        }
-      }
-
-      char external_program_path[PATH_MAX] = {0};
-      if (is_external_program) {
-        is_external_program =
-            find_program_path(args->parts[0], external_program_path);
-      }
-
-      if (is_background_job) {
-        pthread_t new_thread;
-        args->stdout_value = calloc(OUTPUT_CAPACITY, sizeof(char));
-        args->stderr_value = calloc(OUTPUT_CAPACITY, sizeof(char));
-        args->job_num = jobs_state.next_job_num;
-        new_background_job(args);
-      } else if (is_external_program) {
-        new_process(args, external_program_path);
-        free_input_parts(args->parts, args->parts_size);
-        free(args);
-      } else {
-        execute_program(args);
-        free_input_parts(args->parts, args->parts_size);
-        free(args);
-      }
+      // pipeline handler
     }
   }
 
