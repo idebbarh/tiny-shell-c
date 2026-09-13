@@ -1303,15 +1303,15 @@ void pipline_handler(char input[INPUT_CAPACITY], char *stdin_value) {
 
   int is_external_program = 1;
 
-  for (size_t i = 0; i < sizeof(cmd_names) / sizeof(cmd_names[0]); i++) {
-    if (cmd_names[i] == NULL)
-      continue;
-    if (strcmp(args->input, cmd_names[i]) == 0 ||
-        strcmp(args->parts[0], cmd_names[i]) == 0) {
-      is_external_program = 0;
-      break;
-    }
-  }
+  /* for (size_t i = 0; i < sizeof(cmd_names) / sizeof(cmd_names[0]); i++) { */
+  /*   if (cmd_names[i] == NULL) */
+  /*     continue; */
+  /*   if (strcmp(args->input, cmd_names[i]) == 0 || */
+  /*       strcmp(args->parts[0], cmd_names[i]) == 0) { */
+  /*     is_external_program = 0; */
+  /*     break; */
+  /*   } */
+  /* } */
 
   char external_program_path[PATH_MAX] = {0};
   if (is_external_program) {
