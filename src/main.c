@@ -1167,7 +1167,8 @@ void new_process(ProcessArgs *args, char external_program_path[PATH_MAX]) {
     close(stderr_pipe[1]);
     // exucute the command
 
-    handle_external_program(external_program_path, params->parts);
+    execute_program(args);
+    _exit(0);
     // parent
   } else {
     // Add the job info to jobs list
@@ -1314,9 +1315,14 @@ void pipline_handler(char input[INPUT_CAPACITY], char *stdin_value) {
   }
 
   char external_program_path[PATH_MAX] = {0};
+
   if (is_external_program) {
     is_external_program =
         find_program_path(args->parts[0], external_program_path);
+  }
+
+  if (stdin_value != NULL && strlen(stdin_value) > 0) {
+    args->stdin_value = stdin_value;
   }
 
   if (is_background_job) {
@@ -1325,16 +1331,8 @@ void pipline_handler(char input[INPUT_CAPACITY], char *stdin_value) {
     args->stderr_value = calloc(OUTPUT_CAPACITY, sizeof(char));
     args->job_num = jobs_state.next_job_num;
     new_background_job(args);
-  } else if (is_external_program) {
-    if (stdin_value != NULL && strlen(stdin_value) > 0) {
-      args->stdin_value = stdin_value;
-    }
-
-    new_process(args, external_program_path);
-    free_input_parts(args->parts, args->parts_size);
-    free(args);
   } else {
-    execute_program(args);
+    new_process(args, external_program_path);
     free_input_parts(args->parts, args->parts_size);
     free(args);
   }
@@ -1387,65 +1385,13 @@ int main(int argc, char *argv[]) {
         pipline_handler(pipeline[0], NULL);
       } else if (pipeline_size > 1) {
         char prev_stdout_value[OUTPUT_CAPACITY] = {0};
-
         for (size_t i = 0; i < pipeline_size; i++) {
           if (i == pipeline_size - 1) {
             pipline_handler(pipeline[i], prev_stdout_value);
             continue;
           }
-          // ##########################
 
-          int stdout_pipe[2];
-          // make the pipe before the fork so the child inherit it.
-          // the pipe works this way, anything get written to the fds[1] you
-          // can read it from fds[0]
-          pipe(stdout_pipe);
-
-          pid_t pid = fork();
-
-          // child
-          if (pid == 0) {
-            // close the read end because child only write
-            close(stdout_pipe[0]);
-            // make whatever the fd=1 "stdout" point from terminal to whatever
-            // fds[1] points to, this is how we get the the stdout_value from
-            // the terminal
-            dup2(stdout_pipe[1], 1);
-            // close the write end because the child does not need to write
-            // anymore
-            close(stdout_pipe[1]);
-            // exucute the command
-
-            // first call without stdout;
-            pipline_handler(pipeline[i], i == 0 ? NULL : prev_stdout_value);
-            _exit(0);
-            // parent
-          } else {
-            // Add the job info to jobs list
-
-            size_t prev_stdout_value_len = strlen(prev_stdout_value);
-
-            // close the write end in the parent because the parent only read.
-            close(stdout_pipe[1]);
-
-            // get the data that the fds[0] points
-            FILE *f_out = fdopen(stdout_pipe[0], "r");
-            size_t stderr_value_len = 0;
-            char line[256];
-
-            // read it
-            while (fgets(line, sizeof(line), f_out) != NULL) {
-              snprintf(prev_stdout_value + prev_stdout_value_len,
-                       OUTPUT_CAPACITY - prev_stdout_value_len, "%s", line);
-              prev_stdout_value_len = strlen(prev_stdout_value);
-            }
-
-            fclose(f_out);
-
-            waitpid(pid, NULL, 0);
-          }
-
-          // ###########################
+          pipline_handler(pipeline[i], i == 0 ? NULL : prev_stdout_value);
         }
       }
       // pipeline handler
