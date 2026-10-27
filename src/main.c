@@ -37,7 +37,6 @@
 typedef struct {
   char input[INPUT_CAPACITY];
   char *parts[INPUT_CAPACITY];
-  char *stdin_value;
   char *stdout_value;
   char *stderr_value;
   char redirect_file_path[PATH_MAX];
@@ -1072,6 +1071,11 @@ void *handle_background_job_output(void *args) {
 }
 
 void new_background_job(ProcessArgs *args) {
+  if (strcmp(args->input, "exit") == 0) {
+    handle_exit_command();
+    return;
+  }
+
   ProcessArgs *params = (ProcessArgs *)args;
 
   int stdout_pipe[2];
@@ -1133,16 +1137,20 @@ void new_background_job(ProcessArgs *args) {
   }
 }
 
-void new_process(ProcessArgs *args, char external_program_path[PATH_MAX]) {
+void new_process(ProcessArgs *args, char external_program_path[PATH_MAX],
+                 int *src, int *dest) {
+  if (strcmp(args->input, "exit") == 0) {
+    handle_exit_command();
+    return;
+  }
+
   ProcessArgs *params = (ProcessArgs *)args;
 
-  int stdin_pipe[2];
   int stdout_pipe[2];
   int stderr_pipe[2];
   // make the pipe before the fork so the child inherit it.
   // the pipe works this way, anything get written to the fds[1] you
   // can read it from fds[0]
-  pipe(stdin_pipe);
   pipe(stdout_pipe);
   pipe(stderr_pipe);
 
@@ -1151,87 +1159,98 @@ void new_process(ProcessArgs *args, char external_program_path[PATH_MAX]) {
   // child
   if (pid == 0) {
     // close the read end because child only write
-    close(stdin_pipe[1]);
     close(stdout_pipe[0]);
     close(stderr_pipe[0]);
     // make whatever the fd=1 "stdout" point from terminal to whatever
     // fds[1] points to, this is how we get the the stdout_value from
     // the terminal
-    dup2(stdin_pipe[0], STDIN_FILENO);
-    dup2(stdout_pipe[1], STDOUT_FILENO);
+    if (src != NULL) {
+      dup2(*src, STDIN_FILENO);
+      close(*src);
+    }
+
+    if (dest != NULL) {
+      dup2(*dest, STDOUT_FILENO);
+      close(*dest);
+    } else {
+      dup2(stdout_pipe[1], STDOUT_FILENO);
+    }
+
     dup2(stderr_pipe[1], STDERR_FILENO);
     // close the write end because the child does not need to write
     // anymore
-    close(stdin_pipe[0]);
     close(stdout_pipe[1]);
     close(stderr_pipe[1]);
     // exucute the command
 
-    handle_external_program(external_program_path, params->parts);
+    execute_program(args);
+    _exit(0);
     // parent
   } else {
-    // Add the job info to jobs list
-    size_t stdout_value_len = strlen(params->stdout_value);
-
     // close the write end in the parent because the parent only read.
-    close(stdin_pipe[0]);
+    if (src != NULL) {
+      close(*src);
+    }
+
+    if (dest != NULL) {
+      close(*dest);
+    }
+
     close(stdout_pipe[1]);
     close(stderr_pipe[1]);
 
-    if (params->stdin_value != NULL && strlen(params->stdin_value) > 0) {
-      write(stdin_pipe[1], params->stdin_value, strlen(params->stdin_value));
-    }
-
-    close(stdin_pipe[1]);
-
     // get the data that the fds[0] points
-    FILE *f_out = fdopen(stdout_pipe[0], "r");
-    FILE *f_err = fdopen(stderr_pipe[0], "r");
-    size_t stderr_value_len = 0;
     char line[256];
-    int first_iter = 1;
 
-    // read it
+    if (dest == NULL) {
+      FILE *f_out = fdopen(stdout_pipe[0], "r");
+      FILE *f_err = fdopen(stderr_pipe[0], "r");
 
-    while (fgets(line, sizeof(line), f_out) != NULL) {
-      snprintf(params->stdout_value, OUTPUT_CAPACITY, "%s", line);
-      print_output_stream(params->stdout_value, NULL, params->redirect_type,
-                          params->redirect_file_path,
-                          first_iter ? params->is_append_redirect : 1);
+      int first_iter = 1;
 
-      first_iter = 0;
+      while (fgets(line, sizeof(line), f_out) != NULL) {
+        snprintf(params->stdout_value, OUTPUT_CAPACITY, "%s", line);
+        print_output_stream(params->stdout_value, NULL, params->redirect_type,
+                            params->redirect_file_path,
+                            first_iter ? params->is_append_redirect : 1);
+
+        first_iter = 0;
+      }
+
+      if (first_iter) {
+        print_output_stream(params->stdout_value, NULL, params->redirect_type,
+                            params->redirect_file_path,
+                            params->is_append_redirect);
+      }
+
+      first_iter = 1;
+      while (fgets(line, sizeof(line), f_err) != NULL) {
+        snprintf(params->stderr_value, OUTPUT_CAPACITY, "%s", line);
+        print_output_stream(NULL, params->stderr_value, params->redirect_type,
+                            params->redirect_file_path,
+                            first_iter ? params->is_append_redirect : 1);
+
+        first_iter = 0;
+      }
+
+      if (first_iter) {
+        print_output_stream(NULL, params->stderr_value, params->redirect_type,
+                            params->redirect_file_path,
+                            params->is_append_redirect);
+      }
+
+      fclose(f_out);
+      fclose(f_err);
     }
 
-    if (first_iter) {
-      print_output_stream(params->stdout_value, NULL, params->redirect_type,
-                          params->redirect_file_path,
-                          params->is_append_redirect);
-    }
-
-    first_iter = 1;
-    while (fgets(line, sizeof(line), f_err) != NULL) {
-      snprintf(params->stderr_value, OUTPUT_CAPACITY, "%s", line);
-      print_output_stream(NULL, params->stderr_value, params->redirect_type,
-                          params->redirect_file_path,
-                          first_iter ? params->is_append_redirect : 1);
-
-      first_iter = 0;
-    }
-
-    if (first_iter) {
-      print_output_stream(NULL, params->stderr_value, params->redirect_type,
-                          params->redirect_file_path,
-                          params->is_append_redirect);
-    }
-
-    fclose(f_out);
-    fclose(f_err);
-
+    close(stdout_pipe[0]);
+    close(stderr_pipe[0]);
     waitpid(pid, NULL, 0);
   }
 }
 
-void pipline_handler(char input[INPUT_CAPACITY], char *stdin_value) {
+void pipline_handler(char input[INPUT_CAPACITY], int is_inside_pipe, int *src,
+                     int *dest) {
   char stdout_value[OUTPUT_CAPACITY] = {0};
   char stderr_value[OUTPUT_CAPACITY] = {0};
   char *parts[INPUT_CAPACITY] = {0};
@@ -1314,6 +1333,7 @@ void pipline_handler(char input[INPUT_CAPACITY], char *stdin_value) {
   }
 
   char external_program_path[PATH_MAX] = {0};
+
   if (is_external_program) {
     is_external_program =
         find_program_path(args->parts[0], external_program_path);
@@ -1325,12 +1345,8 @@ void pipline_handler(char input[INPUT_CAPACITY], char *stdin_value) {
     args->stderr_value = calloc(OUTPUT_CAPACITY, sizeof(char));
     args->job_num = jobs_state.next_job_num;
     new_background_job(args);
-  } else if (is_external_program) {
-    if (stdin_value != NULL && strlen(stdin_value) > 0) {
-      args->stdin_value = stdin_value;
-    }
-
-    new_process(args, external_program_path);
+  } else if (is_inside_pipe || is_external_program) {
+    new_process(args, external_program_path, src, dest);
     free_input_parts(args->parts, args->parts_size);
     free(args);
   } else {
@@ -1384,68 +1400,13 @@ int main(int argc, char *argv[]) {
 
       // pipeline handler
       if (pipeline_size == 1) {
-        pipline_handler(pipeline[0], NULL);
+        pipline_handler(pipeline[0], 0, NULL, NULL);
       } else if (pipeline_size > 1) {
-        char prev_stdout_value[OUTPUT_CAPACITY] = {0};
-
+        int pipes[INPUT_CAPACITY][2];
         for (size_t i = 0; i < pipeline_size; i++) {
-          if (i == pipeline_size - 1) {
-            pipline_handler(pipeline[i], prev_stdout_value);
-            continue;
-          }
-          // ##########################
-
-          int stdout_pipe[2];
-          // make the pipe before the fork so the child inherit it.
-          // the pipe works this way, anything get written to the fds[1] you
-          // can read it from fds[0]
-          pipe(stdout_pipe);
-
-          pid_t pid = fork();
-
-          // child
-          if (pid == 0) {
-            // close the read end because child only write
-            close(stdout_pipe[0]);
-            // make whatever the fd=1 "stdout" point from terminal to whatever
-            // fds[1] points to, this is how we get the the stdout_value from
-            // the terminal
-            dup2(stdout_pipe[1], 1);
-            // close the write end because the child does not need to write
-            // anymore
-            close(stdout_pipe[1]);
-            // exucute the command
-
-            // first call without stdout;
-            pipline_handler(pipeline[i], i == 0 ? NULL : prev_stdout_value);
-            _exit(0);
-            // parent
-          } else {
-            // Add the job info to jobs list
-
-            size_t prev_stdout_value_len = strlen(prev_stdout_value);
-
-            // close the write end in the parent because the parent only read.
-            close(stdout_pipe[1]);
-
-            // get the data that the fds[0] points
-            FILE *f_out = fdopen(stdout_pipe[0], "r");
-            size_t stderr_value_len = 0;
-            char line[256];
-
-            // read it
-            while (fgets(line, sizeof(line), f_out) != NULL) {
-              snprintf(prev_stdout_value + prev_stdout_value_len,
-                       OUTPUT_CAPACITY - prev_stdout_value_len, "%s", line);
-              prev_stdout_value_len = strlen(prev_stdout_value);
-            }
-
-            fclose(f_out);
-
-            waitpid(pid, NULL, 0);
-          }
-
-          // ###########################
+          pipe(pipes[i]);
+          pipline_handler(pipeline[i], 1, i > 0 ? &pipes[i - 1][0] : NULL,
+                          i < pipeline_size - 1 ? &pipes[i][1] : NULL);
         }
       }
       // pipeline handler
